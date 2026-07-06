@@ -1,0 +1,67 @@
+{
+    "DATA_EXFILTRATION": [
+        {
+            "id": "T1041",
+            "name": "Exfiltration Over C2 Channel"
+        }
+    ],
+
+    "OBFUSCATED_DATA_EXFILTRATION": [
+        {
+            "id": "T1027",
+            "name": "Obfuscated Files or Information"
+        },
+        {
+            "id": "T1041",
+            "name": "Exfiltration Over C2 Channel"
+        }
+    ],
+
+    "STEALTHY_DATA_EXFILTRATION": [
+        {
+            "id": "T1070",
+            "name": "Indicator Removal On Host"
+        },
+        {
+            "id": "T1027",
+            "name": "Obfuscated Files or Information"
+        },
+        {
+            "id": "T1041",
+            "name": "Exfiltration Over C2 Channel"
+        }
+    ],
+
+    "CREDENTIAL_THEFT": [
+        {
+            "id": "T1552",
+            "name": "Unsecured Credentials"
+        }
+    ],
+
+    "OBFUSCATED_CREDENTIAL_EXFILTRATION": [
+    {
+        "id": "T1552",
+        "name": "Unsecured Credentials"
+    },
+    {
+        "id": "T1027",
+        "name": "Obfuscated Files or Information"
+    },
+    {
+        "id": "T1041",
+        "name": "Exfiltration Over C2 Channel"
+    }
+],
+
+"ADVANCED_CREDENTIAL_THEFT": [
+    {
+        "id": "T1552",
+        "name": "Unsecured Credentials"
+    },
+    {
+        "id": "T1027",
+        "name": "Obfuscated Files or Information"
+    }
+]
+}

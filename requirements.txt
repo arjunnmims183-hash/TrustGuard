@@ -1,0 +1,11 @@
+# Project dependencies
+requests==2.28.2
+numpy==1.24.0
+flask==2.3.1
+
+# Suspicious ones
+colourama==0.4.4
+pynput==1.7.6
+request==2.18.0
+pyautogui==0.9.53
+schedule==1.2.0

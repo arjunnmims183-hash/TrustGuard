@@ -18,148 +18,238 @@ Risk bands (from proposal Section 13):
     71–100  High Risk / Critical
 """
 
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Set, Optional, Union
+
+# ==========================================
+# DATA IMPORTS
+# ==========================================
+
+from scanner.data.scoring_weights import (
+    CATEGORY_WEIGHTS,
+    SEVERITY_MULTIPLIER,
+    SECRET_WEIGHT,
+    VULNERABLE_DEP_WEIGHT,
+    KNOWN_MALICIOUS_DEP,
+    BACKDOOR_WEIGHT,
+    VULNERABILITY_WEIGHTS,
+    OBFUSCATION_WEIGHTS,
+    CHAIN_WEIGHTS,
+    LOGIC_BOMB_WEIGHT,
+    CORRELATION_BONUSES,
+    CAPS,
+    RISK_THRESHOLDS,
+    DIMINISHING_FACTOR,
+)
 
 
-# ---------------------------------------------------------------------------
-# Per-indicator base weights
-# ---------------------------------------------------------------------------
+# ==========================================
+# DATA EXTRACTION HELPERS
+# ==========================================
 
-# Dangerous API weights — by category
-CATEGORY_WEIGHTS = {
-    "Code Execution":       25,
-    "Network":              20,
-    "Obfuscation":          15,
-    "Unsafe Deserial.":     20,
-    "Credential Theft":     20,
-    "Persistence":          20,
-    "Reconnaissance":        5,
-    "File Access":          10,
-    "System Access":         5,
-    "Crypto":                5,
-    "Execution":             5,
-    "Destructive":          15,
-}
+def _get_data(result: Dict, phase: str, key: str, default=None) -> Any:
+    """Get data from result (supports both structured and flat formats)."""
+    if phase in result and key in result[phase]:
+        return result[phase][key]
+    return result.get(key, default)
 
-# Severity multipliers on top of category base
-SEVERITY_MULTIPLIER = {
-    "HIGH":   1.0,
-    "MEDIUM": 0.6,
-    "LOW":    0.3,
-}
 
-# Per-finding-type weights
-SECRET_WEIGHT = 15          # each hardcoded secret
-VULNERABLE_DEP_WEIGHT = 15  # each risky dependency
-KNOWN_MALICIOUS_DEP = 30    # known malicious package overrides the above
-VULNERABILITY_WEIGHTS = {
-    "SQL Injection":            25,
-    "Command Injection":        25,
-    "Weak Cryptography":        10,
-    "Insecure Deserialization": 20,
-    "Path Traversal":           15,
-    "Insecure Configuration":   10,
-    "Anti-Forensics":           20,
-    "Persistence":              20,
-    "Cryptomining":             25,
-    "Code Execution":           25,
-}
-BACKDOOR_WEIGHT = 30        # each backdoor finding (always HIGH)
-OBFUSCATION_WEIGHTS = {
-    "HIGH":   20,
-    "MEDIUM": 10,
-    "LOW":     5,
-}
+def _get_phase1_data(result: Dict, key: str, default=None) -> Any:
+    """Get Phase 1 data."""
+    return _get_data(result, "phase1", key, default)
 
-# ---------------------------------------------------------------------------
-# Correlation bonuses — awarded when multiple indicators chain together
-# ---------------------------------------------------------------------------
 
-def _correlation_bonuses(result: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _get_phase2_data(result: Dict, key: str, default=None) -> Any:
+    """Get Phase 2 data."""
+    return _get_data(result, "phase2", key, default)
+
+
+def _extract_severity(item: Dict) -> str:
+    """Extract severity from an item, handling different field names."""
+    sev = item.get("severity", item.get("risk", "MEDIUM"))
+    return sev.upper() if isinstance(sev, str) else "MEDIUM"
+
+
+def _extract_category(item: Dict) -> str:
+    """Extract category from an item, handling different field names."""
+    return item.get("category", item.get("type", "Unknown"))
+
+
+def _get_severity_multiplier(severity: str) -> float:
+    """Get multiplier for a severity level."""
+    return SEVERITY_MULTIPLIER.get(severity, 0.6)
+
+
+# ==========================================
+# SCORING HELPERS
+# ==========================================
+
+def _calculate_weighted_score(
+    items: List[Dict],
+    base_weight: int,
+    max_score: int,
+    category_key: Optional[str] = None,
+    diminishing: bool = True
+) -> int:
+    """
+    Calculate weighted score for a list of findings.
+    
+    Args:
+        items: List of finding dictionaries
+        base_weight: Base weight per finding
+        max_score: Maximum score for this category
+        category_key: Key for category field (for diminishing returns)
+        diminishing: Whether to apply diminishing returns
+        
+    Returns:
+        Calculated score (capped at max_score)
+    """
+    if not items:
+        return 0
+    
+    score = 0
+    seen_categories = set()
+    
+    for item in items:
+        if not isinstance(item, dict):
+            score += base_weight * 0.3
+            continue
+        
+        severity = _extract_severity(item)
+        multiplier = _get_severity_multiplier(severity)
+        contrib = base_weight * multiplier
+        
+        # Apply diminishing returns for repeated categories
+        if diminishing and category_key:
+            category = _extract_category(item)
+            if category in seen_categories:
+                contrib *= DIMINISHING_FACTOR
+            seen_categories.add(category)
+        
+        score += contrib
+    
+    return round(min(score, max_score))
+
+
+def _calculate_simple_score(
+    items: List[Dict],
+    weight: int,
+    max_score: int
+) -> int:
+    """Calculate a simple score with weight per item."""
+    if not items:
+        return 0
+    
+    score = len(items) * weight
+    return round(min(score, max_score))
+
+
+def _get_risk_level(score: int) -> str:
+    """Get risk level based on score."""
+    if score <= RISK_THRESHOLDS["Safe"]:
+        return "Safe"
+    elif score <= RISK_THRESHOLDS["Low Risk"]:
+        return "Low Risk"
+    elif score <= RISK_THRESHOLDS["Suspicious"]:
+        return "Suspicious"
+    elif score <= RISK_THRESHOLDS["High Risk"]:
+        return "High Risk"
+    else:
+        return "Critical"
+
+
+# ==========================================
+# CORRELATION BONUS DETECTION
+# ==========================================
+
+def _detect_correlation_bonuses(result: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Check for known attack chains and award bonus points.
     Returns a list of {name, points, reason} dicts.
     """
     bonuses = []
 
-    api_categories = {f["category"] for f in result.get("dangerous_apis", [])}
-    api_names      = {f["name"]     for f in result.get("dangerous_apis", [])}
-    vuln_cats      = {f["category"] for f in result.get("vulnerabilities", [])}
-    obf_findings   = result.get("obfuscation", [])
-    backdoors      = result.get("backdoors", [])
-    secrets        = result.get("secrets", [])
+    # Extract data from both structured and flat formats
+    dangerous_apis = _get_phase1_data(result, "dangerous_apis", [])
+    vulnerabilities = _get_phase1_data(result, "vulnerabilities", [])
+    obfuscations = _get_phase1_data(result, "obfuscation", [])
+    backdoors = _get_phase1_data(result, "backdoors", [])
+    secrets = _get_phase1_data(result, "secrets", [])
 
-    has_file_access  = "File Access"  in api_categories
-    has_network      = "Network"      in api_categories
-    has_obfuscation  = len(obf_findings) > 0
-    has_persistence  = "Persistence"  in api_categories or "Persistence" in vuln_cats
-    has_exec         = "Code Execution" in api_categories or "Code Execution" in vuln_cats
-    has_secrets      = len(secrets) > 0
-    has_backdoor     = len(backdoors) > 0
-    has_recon        = "Reconnaissance" in api_categories
+    # Extract categories from items
+    api_categories = set()
+    for f in dangerous_apis:
+        if isinstance(f, dict):
+            api_categories.add(_extract_category(f))
+    
+    vuln_cats = set()
+    for f in vulnerabilities:
+        if isinstance(f, dict):
+            vuln_cats.add(_extract_category(f))
 
-    # Data exfiltration chain: file read + encode + network
-    if has_file_access and has_network and has_obfuscation:
-        bonuses.append({
-            "name": "Data Exfiltration Chain",
-            "points": 40,
-            "reason": "File access + obfuscation/encoding + network transmission — classic exfiltration pattern.",
-        })
+    # Determine which flags are present
+    has_file_access = "File Access" in api_categories
+    has_network = "Network" in api_categories
+    has_obfuscation = len(obfuscations) > 0
+    has_persistence = "Persistence" in api_categories or "Persistence" in vuln_cats
+    has_exec = "Code Execution" in api_categories or "Code Execution" in vuln_cats
+    has_secrets = len(secrets) > 0
+    has_backdoor = len(backdoors) > 0
+    has_recon = "Reconnaissance" in api_categories
+    has_destructive = "Destructive" in api_categories
 
-    # Credential harvesting: secret/credential access + network
-    if has_secrets and has_network:
-        bonuses.append({
-            "name": "Credential Exfiltration",
-            "points": 35,
-            "reason": "Hardcoded credentials present + network activity — credentials may be transmitted to attacker.",
-        })
+    # Define bonus conditions
+    bonus_conditions = [
+        # Data exfiltration chain: file read + encode + network
+        (has_file_access and has_network and has_obfuscation,
+         "data_exfiltration_chain",
+         "File access + obfuscation/encoding + network transmission — classic exfiltration pattern."),
 
-    # Backdoor + remote execution
-    if has_backdoor and has_exec:
-        bonuses.append({
-            "name": "Remote Code Execution Backdoor",
-            "points": 40,
-            "reason": "Backdoor pattern + code execution capability — attacker can run arbitrary commands.",
-        })
+        # Credential harvesting: secret/credential access + network
+        (has_secrets and has_network,
+         "credential_exfiltration",
+         "Hardcoded credentials present + network activity — credentials may be transmitted to attacker."),
 
-    # Persistence + network (C2 callback)
-    if has_persistence and has_network:
-        bonuses.append({
-            "name": "Persistent C2 Callback",
-            "points": 35,
-            "reason": "Persistence mechanism + network access — likely a persistent C2 (command and control) implant.",
-        })
+        # Backdoor + remote execution
+        (has_backdoor and has_exec,
+         "remote_code_execution_backdoor",
+         "Backdoor pattern + code execution capability — attacker can run arbitrary commands."),
 
-    # Reconnaissance + network (data exfil of system info)
-    if has_recon and has_network:
-        bonuses.append({
-            "name": "System Fingerprinting + Exfiltration",
-            "points": 20,
-            "reason": "System reconnaissance + network access — system info likely being reported to attacker.",
-        })
+        # Persistence + network (C2 callback)
+        (has_persistence and has_network,
+         "persistent_c2_callback",
+         "Persistence mechanism + network access — likely a persistent C2 implant."),
 
-    # Anti-forensics: destructive API + persistence
-    if "Destructive" in api_categories and has_persistence:
-        bonuses.append({
-            "name": "Persistent + Self-Destructing",
-            "points": 30,
-            "reason": "Destructive file operations + persistence — payload executes then removes evidence.",
-        })
+        # Reconnaissance + network (data exfil of system info)
+        (has_recon and has_network,
+         "system_fingerprinting",
+         "System reconnaissance + network access — system info likely being reported to attacker."),
 
-    # Full kill-chain: recon + exec + persist + network
-    if has_recon and has_exec and has_persistence and has_network:
-        bonuses.append({
-            "name": "Full Attack Kill-Chain Detected",
-            "points": 50,
-            "reason": "Reconnaissance + code execution + persistence + network — all major attack stages present.",
-        })
+        # Anti-forensics: destructive API + persistence
+        (has_destructive and has_persistence,
+         "persistent_self_destructing",
+         "Destructive file operations + persistence — payload executes then removes evidence."),
+
+        # Full kill-chain: recon + exec + persist + network
+        (has_recon and has_exec and has_persistence and has_network,
+         "full_kill_chain",
+         "Reconnaissance + code execution + persistence + network — all major attack stages present."),
+    ]
+
+    for condition, bonus_key, reason in bonus_conditions:
+        if condition:
+            bonus_info = CORRELATION_BONUSES.get(bonus_key, {})
+            bonuses.append({
+                "name": bonus_key.replace("_", " ").title(),
+                "points": bonus_info.get("points", 20),
+                "reason": reason,
+            })
 
     return bonuses
 
 
-# ---------------------------------------------------------------------------
-# Main scoring function
-# ---------------------------------------------------------------------------
+# ==========================================
+# MAIN SCORING FUNCTION
+# ==========================================
 
 def compute_score(result: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -176,121 +266,128 @@ def compute_score(result: Dict[str, Any]) -> Dict[str, Any]:
     total = 0
 
     # ── Dangerous API contributions ──────────────────────────────────────────
-    api_score = 0
-    seen_categories = set()
-    for f in result.get("dangerous_apis", []):
-        cat = f["category"]
-        base = CATEGORY_WEIGHTS.get(cat, 5)
-        mult = SEVERITY_MULTIPLIER.get(f["severity"], 0.3)
-        contrib = base * mult
-        # Apply diminishing returns for the same category flagged many times
-        if cat in seen_categories:
-            contrib *= 0.3
-        seen_categories.add(cat)
-        api_score += contrib
-    api_score = round(min(api_score, 40))   # cap API contribution at 40
+    dangerous_apis = _get_phase1_data(result, "dangerous_apis", [])
+    api_score = _calculate_weighted_score(
+        dangerous_apis,
+        base_weight=5,  # Default weight for APIs
+        max_score=CAPS["dangerous_apis"],
+        category_key="category",
+        diminishing=True
+    )
     breakdown["Dangerous APIs"] = api_score
     total += api_score
 
     # ── Secret contributions ─────────────────────────────────────────────────
-    secret_score = 0
-    for f in result.get("secrets", []):
-        sev = f.get("severity", "MEDIUM")
-        secret_score += SECRET_WEIGHT * SEVERITY_MULTIPLIER.get(sev, 0.6)
-    secret_score = round(min(secret_score, 25))
+    secrets = _get_phase1_data(result, "secrets", [])
+    secret_score = _calculate_simple_score(secrets, SECRET_WEIGHT, CAPS["secrets"])
     breakdown["Secrets / Credentials"] = secret_score
     total += secret_score
 
     # ── Vulnerability contributions ──────────────────────────────────────────
-    vuln_score = 0
-    seen_vuln_cats = set()
-    for f in result.get("vulnerabilities", []):
-        cat = f["category"]
-        base = VULNERABILITY_WEIGHTS.get(cat, 10)
-        mult = SEVERITY_MULTIPLIER.get(f.get("severity", "MEDIUM"), 0.6)
-        contrib = base * mult
-        if cat in seen_vuln_cats:
-            contrib *= 0.3
-        seen_vuln_cats.add(cat)
-        vuln_score += contrib
-    vuln_score = round(min(vuln_score, 35))
+    vulnerabilities = _get_phase1_data(result, "vulnerabilities", [])
+    vuln_score = _calculate_weighted_score(
+        vulnerabilities,
+        base_weight=10,  # Default for vulnerabilities
+        max_score=CAPS["vulnerabilities"],
+        category_key="category",
+        diminishing=True
+    )
     breakdown["Vulnerabilities"] = vuln_score
     total += vuln_score
 
     # ── Backdoor contributions ───────────────────────────────────────────────
-    backdoor_score = 0
-    for f in result.get("backdoors", []):
-        backdoor_score += BACKDOOR_WEIGHT
-    backdoor_score = round(min(backdoor_score, 40))
+    backdoors = _get_phase1_data(result, "backdoors", [])
+    backdoor_score = _calculate_simple_score(backdoors, BACKDOOR_WEIGHT, CAPS["backdoors"])
     breakdown["Backdoors"] = backdoor_score
     total += backdoor_score
 
     # ── Obfuscation contributions ────────────────────────────────────────────
-    obf_score = 0
-    for f in result.get("obfuscation", []):
-        obf_score += OBFUSCATION_WEIGHTS.get(f.get("severity", "MEDIUM"), 10)
-    obf_score = round(min(obf_score, 25))
+    obfuscations = _get_phase1_data(result, "obfuscation", [])
+    obf_score = _calculate_weighted_score(
+        obfuscations,
+        base_weight=10,  # Default for obfuscation
+        max_score=CAPS["obfuscation"],
+        diminishing=False
+    )
     breakdown["Obfuscation"] = obf_score
     total += obf_score
 
     # ── Dependency contributions ─────────────────────────────────────────────
+    dependencies = _get_phase1_data(result, "vulnerable_dependencies", [])
     dep_score = 0
-    for f in result.get("vulnerable_dependencies", []):
-        if f.get("flag_type") == "known_malicious":
-            dep_score += KNOWN_MALICIOUS_DEP
+    for f in dependencies:
+        if isinstance(f, dict):
+            if f.get("flag_type") == "known_malicious":
+                dep_score += KNOWN_MALICIOUS_DEP
+            else:
+                severity = _extract_severity(f)
+                multiplier = _get_severity_multiplier(severity)
+                dep_score += VULNERABLE_DEP_WEIGHT * multiplier
         else:
-            dep_score += VULNERABLE_DEP_WEIGHT * SEVERITY_MULTIPLIER.get(f.get("severity", "MEDIUM"), 0.6)
-    dep_score = round(min(dep_score, 30))
+            dep_score += VULNERABLE_DEP_WEIGHT * 0.6
+    dep_score = round(min(dep_score, CAPS["dependencies"]))
     breakdown["Risky Dependencies"] = dep_score
     total += dep_score
 
     # ── Behavioral chains (Phase 2) ─────────────────────────────────────────
+    chains = _get_phase2_data(result, "chains", [])
     chain_score = 0
-    chain_weights = {"CRITICAL": 50, "HIGH": 40, "MEDIUM": 25, "LOW": 10}
     seen_chains = set()
-    for c in result.get("chains", []):
-        ct = c["chain_type"]
-        if ct not in seen_chains:
-            chain_score += chain_weights.get(c["confidence"], 25)
-            seen_chains.add(ct)
-    chain_score = round(min(chain_score, 60))
+    for c in chains:
+        if isinstance(c, dict):
+            ct = c.get("chain_type", c.get("type", "Unknown"))
+            conf = c.get("confidence", c.get("severity", "MEDIUM"))
+            conf_upper = conf.upper() if isinstance(conf, str) else "MEDIUM"
+            if ct not in seen_chains:
+                chain_score += CHAIN_WEIGHTS.get(conf_upper, 25)
+                seen_chains.add(ct)
+        else:
+            chain_score += 25
+    chain_score = round(min(chain_score, CAPS["behavioral_chains"]))
     breakdown["Behavioral Chains"] = chain_score
     total += chain_score
 
     # ── Logic bombs (Phase 2) ────────────────────────────────────────────────
-    lb_score = 0
-    for f in result.get("logic_bombs", []):
-        lb_score += 35 * SEVERITY_MULTIPLIER.get(f.get("severity", "HIGH"), 1.0)
-    lb_score = round(min(lb_score, 40))
+    logic_bombs = _get_phase2_data(result, "logic_bombs", [])
+    lb_score = _calculate_simple_score(logic_bombs, LOGIC_BOMB_WEIGHT, CAPS["logic_bombs"])
     breakdown["Logic Bombs"] = lb_score
     total += lb_score
 
     # ── Correlation bonuses ──────────────────────────────────────────────────
-    bonuses = _correlation_bonuses(result)
+    bonuses = _detect_correlation_bonuses(result)
     bonus_total = sum(b["points"] for b in bonuses)
-    bonus_total = round(min(bonus_total, 60))   # cap bonus at 60
+    bonus_total = round(min(bonus_total, CAPS["correlation_bonuses"]))
     breakdown["Correlation Bonuses"] = bonus_total
     total += bonus_total
 
     # ── Final score and risk band ────────────────────────────────────────────
-    total_raw   = total
+    total_raw = total
     threat_score = min(total, 100)
-
-    if threat_score <= 20:
-        risk_level = "Safe"
-    elif threat_score <= 45:
-        risk_level = "Low Risk"
-    elif threat_score <= 70:
-        risk_level = "Suspicious"
-    elif threat_score <= 89:
-        risk_level = "High Risk"
-    else:
-        risk_level = "Critical"
+    risk_level = _get_risk_level(threat_score)
 
     return {
         "threat_score": threat_score,
-        "risk_level":   risk_level,
-        "breakdown":    breakdown,
-        "bonuses":      bonuses,
-        "total_raw":    total_raw,
+        "risk_level": risk_level,
+        "breakdown": breakdown,
+        "bonuses": bonuses,
+        "total_raw": total_raw,
     }
+
+
+# ==========================================
+# LEGACY SUPPORT
+# ==========================================
+
+def compute_score_legacy(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Legacy wrapper for backward compatibility."""
+    return compute_score(result)
+
+
+# ==========================================
+# EXPORTS
+# ==========================================
+
+__all__ = [
+    "compute_score",
+    "compute_score_legacy",
+]

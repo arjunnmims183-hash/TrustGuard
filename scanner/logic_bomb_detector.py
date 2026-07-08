@@ -7,122 +7,169 @@ Detects conditional triggers that gate malicious behavior:
   - Counter/iteration triggers
   - Environment-specific triggers
 """
+
 import ast
-import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Set
+
+# ==========================================
+# DATA IMPORTS
+# ==========================================
+
+from scanner.data.logic_bomb_patterns import (
+    LINE_RULES,
+    DANGEROUS_OPERATIONS,
+    TRIGGER_KEYWORDS,
+)
 
 
-LINE_RULES = [
-    ("Time-based trigger — datetime comparison",
-     re.compile(r'(datetime\.now|datetime\.today|time\.time|date\.today)\s*\(\s*\).*[><=!]'),
-     "HIGH", "Time-Based Logic Bomb",
-     "Code execution gated on the current date/time — will activate at a specific moment."),
+# ==========================================
+# HELPER FUNCTIONS
+# ==========================================
 
-    ("Time-based trigger — date string comparison",
-     re.compile(r'["\'][12][0-9]{3}[-/][01][0-9][-/][0-3][0-9]["\']'),
-     "MEDIUM", "Time-Based Logic Bomb",
-     "Hardcoded date string in source — possible logic bomb trigger date."),
-
-    ("Hostname trigger",
-     re.compile(r'(socket\.gethostname|platform\.node)\s*\(\s*\)\s*(==|!=|in)'),
-     "HIGH", "Host-Based Logic Bomb",
-     "Execution gated on system hostname — activates only on specific target machine."),
-
-    ("Username trigger",
-     re.compile(r'(os\.getlogin|getpass\.getuser|os\.environ\[["\']USER["\'])\s*\)?\s*(==|!=|in)'),
-     "HIGH", "User-Based Logic Bomb",
-     "Execution gated on logged-in username — activates only for a specific user."),
-
-    ("Counter/iteration trigger",
-     re.compile(r'if\s+\w+\s*(==|>=|>)\s*\d{4,}\s*:'),
-     "MEDIUM", "Counter-Based Logic Bomb",
-     "Condition triggers after a large iteration count — behavior hidden until Nth execution."),
-
-    ("Environment variable trigger",
-     re.compile(r'os\.(getenv|environ\.get)\s*\([^)]+\)\s*(==|!=|is\s+None|is\s+not\s+None)'),
-     "MEDIUM", "Environment-Based Logic Bomb",
-     "Execution gated on a specific environment variable value or presence."),
-
-    ("PID/process count trigger",
-     re.compile(r'os\.(getpid|getppid)\s*\(\s*\)\s*(==|!=|>|<)'),
-     "LOW", "Process-Based Trigger",
-     "Execution gated on process ID — can be used to detect sandbox environments."),
-
-    ("Sandbox evasion — sleep delay",
-     re.compile(r'time\.sleep\s*\(\s*([6-9]\d{1,}|\d{3,})\s*\)'),
-     "HIGH", "Sandbox Evasion",
-     "Long sleep delay (60+ seconds) — common technique to outlast automated sandbox analysis timeouts."),
-
-    ("Sandbox evasion — process list check",
-     re.compile(r'psutil\.(process_iter|pids)\s*\(\s*\)'),
-     "MEDIUM", "Sandbox Evasion",
-     "Process enumeration — often used to detect analysis tools (Wireshark, OllyDbg) and halt execution."),
-]
-
-
-def _ast_logic_bomb_rules(tree: ast.AST, source_lines: List[str]) -> List[Dict]:
+def _call_name(node: ast.AST) -> str:
     """
-    AST-level: detect if/elif bodies that only execute when a
-    date/time/host comparison is true, and the body contains
-    dangerous operations.
+    Reconstruct a dotted call name from the AST node.
+    """
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _call_name(node.value)
+        return f"{parent}.{node.attr}" if parent else node.attr
+    return ""
+
+
+def _format_finding(
+    category: str,
+    pattern: str,
+    lineno: int,
+    severity: str,
+    reason: str,
+    snippet: str = ""
+) -> Dict[str, Any]:
+    """
+    Create a standardized finding dictionary.
+    """
+    return {
+        "category": category,
+        "pattern": pattern,
+        "lineno": lineno,
+        "severity": severity,
+        "reason": reason,
+        "snippet": snippet[:120] if snippet else "",
+    }
+
+
+def _get_trigger_text(node: ast.AST) -> str:
+    """
+    Extract trigger text from an AST node for display.
+    """
+    try:
+        if hasattr(ast, "unparse"):
+            return ast.unparse(node.test)[:60]
+    except Exception:
+        pass
+    return "unknown trigger"
+
+
+# ==========================================
+# AST-BASED RULES
+# ==========================================
+
+def _scan_ast_condition_dangerous(
+    tree: ast.AST,
+    source_lines: List[str]
+) -> List[Dict[str, Any]]:
+    """
+    Detect if/elif blocks where:
+        1. The condition contains a trigger (time/host/user/env)
+        2. The body contains dangerous operations (eval/exec/subprocess/etc.)
     """
     findings = []
-    DANGEROUS_IN_BODY = {"eval", "exec", "subprocess", "requests", "os.system",
-                          "socket", "shutil.rmtree", "os.remove"}
-
+    
     for node in ast.walk(tree):
-        if not isinstance(node, (ast.If,)):
+        if not isinstance(node, ast.If):
             continue
-
-        # Check if the test involves time/host/user
-        test_src = ast.unparse(node.test) if hasattr(ast, "unparse") else ""
-        triggers = ["datetime", "time.time", "gethostname", "getlogin",
-                    "getuser", "getenv", "platform.node"]
-
-        if not any(t in test_src for t in triggers):
+        
+        # Get condition text
+        test_text = _get_trigger_text(node)
+        
+        # Check if condition contains any trigger keyword
+        has_trigger = any(keyword in test_text for keyword in TRIGGER_KEYWORDS)
+        if not has_trigger:
             continue
-
-        # Check body for dangerous calls
+        
+        # Check body for dangerous operations
+        body_dangerous = []
         for body_node in ast.walk(ast.Module(body=node.body, type_ignores=[])):
             if isinstance(body_node, ast.Call):
-                from scanner.behavioral_analyzer import _call_name
                 name = _call_name(body_node.func)
-                if any(d in name for d in DANGEROUS_IN_BODY):
-                    lineno = getattr(node, "lineno", 0)
-                    findings.append({
-                        "category": "Logic Bomb",
-                        "pattern":  "Trigger condition gates dangerous operation (AST)",
-                        "lineno":   lineno,
-                        "severity": "HIGH",
-                        "reason":   (
-                            f"Conditional trigger ({test_src[:60]}) gates a dangerous "
-                            f"operation ({name}) — classic logic bomb structure."
-                        ),
-                        "snippet": source_lines[lineno-1].strip() if lineno <= len(source_lines) else "",
-                    })
-                    break  # one finding per if block
-
+                # Check if this dangerous operation is in our list
+                for danger in DANGEROUS_OPERATIONS:
+                    if danger in name:
+                        body_dangerous.append(name)
+                        break
+        
+        if body_dangerous:
+            lineno = getattr(node, "lineno", 0)
+            snippet = source_lines[lineno - 1].strip() if lineno <= len(source_lines) else ""
+            
+            findings.append(_format_finding(
+                category="Logic Bomb",
+                pattern="Trigger condition gates dangerous operation (AST)",
+                lineno=lineno,
+                severity="HIGH",
+                reason=(
+                    f"Conditional trigger ({test_text}) gates a dangerous "
+                    f"operation ({', '.join(body_dangerous[:3])}) — classic logic bomb structure."
+                ),
+                snippet=snippet,
+            ))
+    
     return findings
 
 
-def detect_logic_bombs(tree: ast.AST, source: str) -> List[Dict[str, Any]]:
-    findings = []
-    source_lines = source.splitlines()
+# ==========================================
+# LINE-BASED SCANNING
+# ==========================================
 
+def _scan_line_rules(source_lines: List[str]) -> List[Dict[str, Any]]:
+    """
+    Scan each line with all regex patterns.
+    """
+    findings = []
+    
     for lineno, line in enumerate(source_lines, start=1):
         for name, pattern, severity, category, reason in LINE_RULES:
             if pattern.search(line):
-                findings.append({
-                    "category": category,
-                    "pattern":  name,
-                    "lineno":   lineno,
-                    "severity": severity,
-                    "reason":   reason,
-                    "snippet":  line.strip()[:120],
-                })
+                findings.append(_format_finding(
+                    category=category,
+                    pattern=name,
+                    lineno=lineno,
+                    severity=severity,
+                    reason=reason,
+                    snippet=line.strip(),
+                ))
+    
+    return findings
 
-    findings.extend(_ast_logic_bomb_rules(tree, source_lines))
 
+# ==========================================
+# MAIN DETECTION FUNCTION
+# ==========================================
+
+def detect_logic_bombs(tree: ast.AST, source: str) -> List[Dict[str, Any]]:
+    """
+    Run all logic bomb detection rules.
+    Returns findings sorted by line number.
+    """
+    source_lines = source.splitlines()
+    
+    # Collect findings from both line-based and AST-based rules
+    findings = []
+    findings.extend(_scan_line_rules(source_lines))
+    findings.extend(_scan_ast_condition_dangerous(tree, source_lines))
+    
+    # Deduplicate by (lineno, pattern)
     seen = set()
     unique = []
     for f in findings:
@@ -130,6 +177,30 @@ def detect_logic_bombs(tree: ast.AST, source: str) -> List[Dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             unique.append(f)
-
+    
+    # Sort by line number
     unique.sort(key=lambda f: f["lineno"])
+    
     return unique
+
+
+# ==========================================
+# LEGACY SUPPORT
+# ==========================================
+
+def detect_logic_bombs_legacy(tree: ast.AST, source: str) -> List[Dict[str, Any]]:
+    """
+    Legacy wrapper for backward compatibility.
+    """
+    return detect_logic_bombs(tree, source)
+
+
+# ==========================================
+# EXPORTS
+# ==========================================
+
+__all__ = [
+    "detect_logic_bombs",
+    "detect_logic_bombs_legacy",
+    "LINE_RULES",
+]

@@ -16,7 +16,7 @@ from scanner.behavioral_extractor import (
 def main():
 
     result = parse_file(
-    "one.py"
+    "pathlib_test.py"
 )
 
     if result["error"]:

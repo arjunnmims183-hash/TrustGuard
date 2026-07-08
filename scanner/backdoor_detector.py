@@ -21,157 +21,144 @@ Each finding:
 """
 
 import ast
-import re
 from typing import List, Dict, Any
 
+# ==========================================
+# DATA IMPORTS
+# ==========================================
 
-LINE_RULES = [
-
-    # Hardcoded password/token comparisons
-    ("Hardcoded password comparison",
-     re.compile(r'(password|passwd|pwd|pass)\s*(==|!=|is)\s*["\'][^"\']{3,}["\']', re.IGNORECASE),
-     "HIGH", "Hardcoded Credential Bypass",
-     "Password compared against a hardcoded string — classic backdoor pattern."),
-
-    ("Hardcoded token/key comparison",
-     re.compile(r'(token|api_key|apikey|secret|auth_key)\s*(==|!=)\s*["\'][^"\']{4,}["\']', re.IGNORECASE),
-     "HIGH", "Hardcoded Credential Bypass",
-     "Authentication token or key compared against a hardcoded value — backdoor access pattern."),
-
-    ("Hardcoded username comparison",
-     re.compile(r'(username|user|login|account)\s*(==|!=)\s*["\'][^"\']{2,}["\']', re.IGNORECASE),
-     "HIGH", "Hardcoded Credential Bypass",
-     "Username compared against a hardcoded string — may be a hidden admin account check."),
-
-    # Always-true / always-false auth conditions
-    ("Always-true auth condition",
-     re.compile(r'if\s+(True|1\s*==\s*1|0\s*==\s*0)\s*:', re.IGNORECASE),
-     "HIGH", "Authentication Bypass",
-     "Condition always evaluates to True — any auth check here is permanently bypassed."),
-
-    ("Commented-out auth check",
-     re.compile(r'#.*\b(auth|authenticate|verify|check_password|login_required)\b', re.IGNORECASE),
-     "MEDIUM", "Authentication Bypass",
-     "Authentication/verification function appears to be commented out — security check may have been disabled."),
-
-    # Hidden admin/root accounts
-    ("Hardcoded admin account",
-     re.compile(r'(admin|root|superuser|su|administrator)\s*(==|!=)\s*["\'][^"\']+["\']', re.IGNORECASE),
-     "HIGH", "Hidden Admin Account",
-     "Hardcoded admin/root account comparison — hidden privileged access backdoor."),
-
-    # Secret/hidden URL routes (Flask/FastAPI/Django patterns)
-    ("Hidden route — suspicious path",
-     re.compile(r'@(app|router|blueprint)\.(route|get|post|put|delete)\s*\(\s*["\']/(shell|backdoor|cmd|command|exec|hidden|secret|admin_[a-z]+)["\']', re.IGNORECASE),
-     "HIGH", "Hidden Endpoint",
-     "Web route registered at a suspicious path — possible hidden backdoor endpoint."),
-
-    ("Hidden route — long random path",
-     re.compile(r'@(app|router|blueprint)\.(route|get|post|put|delete)\s*\(\s*["\']/[a-f0-9]{16,}["\']', re.IGNORECASE),
-     "HIGH", "Hidden Endpoint",
-     "Web route at a hex-like random path — likely an undocumented backdoor endpoint."),
-
-    # OS command execution triggered by specific input
-    ("Input-triggered command execution",
-     re.compile(r'(os\.system|subprocess\.(run|call|Popen))\s*\([^)]*(?:request|input|arg|param|data|body)[^)]*\)', re.IGNORECASE),
-     "HIGH", "Remote Code Execution Backdoor",
-     "System command executed with what appears to be user-supplied input — remote code execution backdoor."),
-
-    # eval/exec on received data
-    ("eval/exec on received data",
-     re.compile(r'(eval|exec)\s*\([^)]*(?:request|recv|data|payload|body|input|arg)[^)]*\)', re.IGNORECASE),
-     "HIGH", "Remote Code Execution Backdoor",
-     "eval() or exec() called with what appears to be received/user data — allows arbitrary code execution by attacker."),
-
-    # Reverse shell patterns
-    ("Reverse shell — socket + exec",
-     re.compile(r'(socket\.socket|s\.connect)\s*\(.*\)', re.IGNORECASE),
-     "MEDIUM", "Potential Reverse Shell",
-     "Socket connection pattern — combined with subprocess or exec calls this can establish a reverse shell."),
-
-    ("Reverse shell — pty spawn",
-     re.compile(r'pty\.spawn|os\.dup2\s*\(.*socket|bash.*-i', re.IGNORECASE),
-     "HIGH", "Reverse Shell",
-     "PTY spawn or socket duplication pattern — signature of a reverse shell payload."),
-
-    # Time/environment-gated backdoors (logic bomb indicators at backdoor level)
-    ("Environment-gated backdoor",
-     re.compile(r'if\s+os\.(getenv|environ)\s*\([^)]+\)\s*(==|!=|in)\s*["\'][^"\']+["\'].*:', re.IGNORECASE),
-     "MEDIUM", "Conditional Backdoor",
-     "Code execution gated on a specific environment variable value — possible environment-triggered backdoor."),
-
-    ("Hostname-gated execution",
-     re.compile(r'(socket\.gethostname|platform\.node)\s*\(\s*\)\s*(==|!=|in)\s*["\']', re.IGNORECASE),
-     "HIGH", "Conditional Backdoor",
-     "Code execution gated on the system hostname — will only activate on a specific target machine."),
-]
+from scanner.data.backdoor_patterns import LINE_RULES, AUTH_FUNCTION_NAMES
 
 
-def _ast_backdoor_rules(tree: ast.AST, source_lines: List[str]) -> List[Dict[str, Any]]:
+# ==========================================
+# HELPER FUNCTIONS
+# ==========================================
+
+def _format_finding(
+    category: str,
+    pattern: str,
+    lineno: int,
+    severity: str,
+    reason: str,
+    snippet: str = ""
+) -> Dict[str, Any]:
     """
-    AST-level backdoor detection.
-    Catches patterns that are hard to find with line-level regex:
-      - Functions with parameter defaults that grant elevated access
-      - is_admin / is_authenticated always returning True
-      - __eq__ overridden to always return True (password object bypass)
+    Create a standardized finding dictionary.
+    """
+    return {
+        "category": category,
+        "pattern": pattern,
+        "lineno": lineno,
+        "severity": severity,
+        "reason": reason,
+        "snippet": snippet[:120] if snippet else "",
+    }
+
+
+# ==========================================
+# AST-BASED RULES
+# ==========================================
+
+def _scan_ast_auth_functions(tree: ast.AST, source_lines: List[str]) -> List[Dict[str, Any]]:
+    """
+    Detect authentication functions that always return True.
+    
+    Example:
+        def is_admin(user):
+            return True
     """
     findings = []
-
+    
     for node in ast.walk(tree):
-
-        # Function that returns True unconditionally (fake auth check)
         if isinstance(node, ast.FunctionDef):
             fname = node.name.lower()
-            auth_names = {"is_admin", "is_authenticated", "check_auth",
-                          "verify_password", "authenticate", "is_superuser",
-                          "check_permission", "has_permission"}
-            if fname in auth_names:
-                # Check if the function just returns True
+            
+            if fname in AUTH_FUNCTION_NAMES:
                 body = node.body
+                
+                # Check if function just returns True
                 if (len(body) == 1
                         and isinstance(body[0], ast.Return)
                         and isinstance(body[0].value, ast.Constant)
                         and body[0].value.value is True):
+                    
                     lineno = getattr(node, "lineno", 0)
-                    findings.append({
-                        "category": "Authentication Bypass",
-                        "pattern": f"{node.name}() always returns True",
-                        "lineno": lineno,
-                        "severity": "HIGH",
-                        "reason": (
+                    snippet = source_lines[lineno - 1].strip() if lineno <= len(source_lines) else ""
+                    
+                    findings.append(_format_finding(
+                        category="Authentication Bypass",
+                        pattern=f"{node.name}() always returns True",
+                        lineno=lineno,
+                        severity="HIGH",
+                        reason=(
                             f"Function '{node.name}' unconditionally returns True — "
                             "any caller treating this as a real authentication check is bypassed."
                         ),
-                        "snippet": source_lines[lineno - 1].strip() if lineno <= len(source_lines) else "",
-                    })
-
+                        snippet=snippet,
+                    ))
+    
     return findings
 
+
+def _scan_ast_rules(tree: ast.AST, source_lines: List[str]) -> List[Dict[str, Any]]:
+    """
+    Run all AST-level backdoor rules.
+    """
+    findings = []
+    
+    findings.extend(_scan_ast_auth_functions(tree, source_lines))
+    
+    return findings
+
+
+# ==========================================
+# LINE-BASED SCANNING
+# ==========================================
+
+def _scan_line_rules(source_lines: List[str]) -> List[Dict[str, Any]]:
+    """
+    Scan each line with all regex patterns.
+    """
+    findings = []
+    
+    for lineno, line in enumerate(source_lines, start=1):
+        stripped = line.strip()
+        
+        # Skip pure comment lines to reduce false positives
+        if stripped.startswith('#'):
+            continue
+        
+        for name, pattern, severity, category, reason in LINE_RULES:
+            if pattern.search(line):
+                findings.append(_format_finding(
+                    category=category,
+                    pattern=name,
+                    lineno=lineno,
+                    severity=severity,
+                    reason=reason,
+                    snippet=stripped,
+                ))
+    
+    return findings
+
+
+# ==========================================
+# MAIN DETECTION FUNCTION
+# ==========================================
 
 def detect_backdoors(tree: ast.AST, source: str) -> List[Dict[str, Any]]:
     """
     Run all backdoor detection rules.
     Returns findings sorted by line number.
     """
-    findings = []
     source_lines = source.splitlines()
-
-    for lineno, line in enumerate(source_lines, start=1):
-        # Skip pure comment lines for most rules (reduces false positives)
-        stripped = line.strip()
-        for name, pattern, severity, category, reason in LINE_RULES:
-            if pattern.search(line):
-                findings.append({
-                    "category": category,
-                    "pattern": name,
-                    "lineno": lineno,
-                    "severity": severity,
-                    "reason": reason,
-                    "snippet": stripped[:120],
-                })
-
-    findings.extend(_ast_backdoor_rules(tree, source_lines))
-
+    
+    # Collect findings from both line-based and AST-based rules
+    findings = []
+    findings.extend(_scan_line_rules(source_lines))
+    findings.extend(_scan_ast_rules(tree, source_lines))
+    
+    # Deduplicate same pattern on same line
     seen = set()
     unique = []
     for f in findings:
@@ -179,6 +166,31 @@ def detect_backdoors(tree: ast.AST, source: str) -> List[Dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             unique.append(f)
-
+    
+    # Sort by line number
     unique.sort(key=lambda f: f["lineno"])
+    
     return unique
+
+
+# ==========================================
+# LEGACY SUPPORT
+# ==========================================
+
+def detect_backdoors_legacy(tree: ast.AST, source: str) -> List[Dict[str, Any]]:
+    """
+    Legacy wrapper for backward compatibility.
+    """
+    return detect_backdoors(tree, source)
+
+
+# ==========================================
+# EXPORTS
+# ==========================================
+
+__all__ = [
+    "detect_backdoors",
+    "detect_backdoors_legacy",
+    "LINE_RULES",
+    "AUTH_FUNCTION_NAMES",
+]

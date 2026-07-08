@@ -19,161 +19,112 @@ Techniques covered:
 import ast
 import re
 import math
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Set, Tuple
+
+# ==========================================
+# DATA IMPORTS
+# ==========================================
+
+from scanner.data.obfuscation_patterns import (
+    LINE_RULES,
+    ENTROPY_THRESHOLD,
+    MIN_ENTROPY_LENGTH,
+)
 
 
-# ---------------------------------------------------------------------------
-# Regex-based rules
-# ---------------------------------------------------------------------------
+# ==========================================
+# HELPER FUNCTIONS
+# ==========================================
 
-LINE_RULES = [
-
-    # chr() chains — building strings one character at a time
-    ("chr() chain — string building",
-     re.compile(r'(chr\s*\(\s*\d+\s*\)\s*\+\s*){2,}'),
-     "HIGH", "chr() Chain Obfuscation",
-     "Multiple chr() calls concatenated — classic technique to build a string without using string literals, hiding the actual content from static analysis."),
-
-    # XOR decode loops
-    ("XOR decode loop",
-     re.compile(r'\^\s*(0x[0-9a-fA-F]+|\d+)'),
-     "HIGH", "XOR Obfuscation",
-     "XOR operation with a constant — common in XOR-based payload decryption routines."),
-
-    # Base64 decode then exec/eval
-    ("Base64 decode → exec/eval",
-     re.compile(r'(eval|exec)\s*\([^)]*base64\.(b64decode|decodebytes|decode)', re.IGNORECASE),
-     "HIGH", "Encoded Payload Execution",
-     "Base64-decoded content passed directly to eval()/exec() — classic encoded payload execution pattern."),
-
-    ("Base64 decode → compile",
-     re.compile(r'compile\s*\([^)]*base64\.(b64decode|decodebytes)', re.IGNORECASE),
-     "HIGH", "Encoded Payload Execution",
-     "Base64-decoded content passed to compile() — obfuscated code compiled and likely executed."),
-
-    # zlib + base64 combo (common packer pattern)
-    ("zlib decompress + base64 decode chain",
-     re.compile(r'zlib\.decompress\s*\([^)]*base64\.b64decode|base64\.b64decode[^)]*zlib\.decompress', re.IGNORECASE),
-     "HIGH", "Packed Payload",
-     "zlib decompression chained with base64 decoding — signature of a packed/compressed payload being unpacked at runtime."),
-
-    # Dynamic __import__
-    ("Dynamic __import__() call",
-     re.compile(r'__import__\s*\(\s*(?!["\'][a-zA-Z_][a-zA-Z0-9_.]*["\'])'),
-     "HIGH", "Dynamic Import Obfuscation",
-     "__import__() called with a non-literal argument — module name is determined at runtime to evade static import analysis."),
-
-    # String concatenation to build module/function names
-    ("String concat to build module name",
-     re.compile(r'__import__\s*\(\s*["\'][a-z]+["\'\s]*\+\s*["\'][a-z]+["\']'),
-     "HIGH", "Import Name Obfuscation",
-     "Module name built by string concatenation before __import__ — hides which module is being imported."),
-
-    # exec(compile(...))
-    ("exec(compile()) — runtime code compilation",
-     re.compile(r'exec\s*\(\s*compile\s*\('),
-     "HIGH", "Runtime Code Compilation",
-     "exec(compile(...)) — code is compiled and executed at runtime, bypassing static analysis of what runs."),
-
-    # Hex escape sequences in strings
-    ("Hex escape sequences in string",
-     re.compile(r'(\\x[0-9a-fA-F]{2}){4,}'),
-     "MEDIUM", "Hex Escape Obfuscation",
-     "Four or more consecutive hex escape sequences — commonly used to encode hidden strings or shellcode."),
-
-    # Octal escape sequences
-    ("Octal escape sequences in string",
-     re.compile(r'(\\[0-7]{3}){3,}'),
-     "MEDIUM", "Octal Escape Obfuscation",
-     "Multiple octal escape sequences — alternate encoding method to hide string content from static inspection."),
-
-    # Unicode escape obfuscation
-    ("Unicode escape sequences in string",
-     re.compile(r'(\\u[0-9a-fA-F]{4}){3,}'),
-     "MEDIUM", "Unicode Escape Obfuscation",
-     "Multiple Unicode escape sequences — can be used to hide keywords or strings from pattern matching."),
-
-    # getattr used to call functions dynamically
-    ("getattr() used to call function dynamically",
-     re.compile(r'getattr\s*\(\s*\w+\s*,\s*(?!["\'][a-zA-Z_][a-zA-Z0-9_]*["\'])[^)]+\)'),
-     "MEDIUM", "Dynamic Attribute Resolution",
-     "getattr() called with a non-literal attribute name — function to call is determined at runtime, hiding behavior."),
-
-    # Lambda chains (obfuscation via excessive lambda nesting)
-    ("Lambda chain obfuscation",
-     re.compile(r'(lambda\s+\w+\s*:\s*){3,}'),
-     "MEDIUM", "Lambda Chain Obfuscation",
-     "Deeply nested lambda expressions — can be used to obfuscate logic and evade simple pattern matching."),
-
-    # rot13 / codecs decode abuse
-    ("codecs.decode / rot13 obfuscation",
-     re.compile(r'codecs\.(decode|encode)\s*\([^)]*["\']rot.?13["\']|["\']rot.?13["\'][^)]*codecs\.(decode|encode)', re.IGNORECASE),
-     "HIGH", "Encoding Obfuscation",
-     "codecs.decode with rot13 — used to hide string literals like function names or URLs from static inspection."),
-
-    # exec/eval with decode chain
-    ("eval/exec with decode chain",
-     re.compile(r'(eval|exec)\s*\([^)]*\.(decode|decompress)\s*\(', re.IGNORECASE),
-     "HIGH", "Encoded Payload Execution",
-     "eval()/exec() called on decoded/decompressed content — encoded payload being unpacked and executed."),
-]
-
-
-# ---------------------------------------------------------------------------
-# AST-based obfuscation rules
-# ---------------------------------------------------------------------------
-
-def _ast_obfuscation_rules(tree: ast.AST, source_lines: List[str]) -> List[Dict[str, Any]]:
+def _shannon_entropy(s: str) -> float:
     """
-    AST-level obfuscation detection:
-      - chr() chains (counting consecutive chr() calls in BinOp chains)
-      - __import__ with non-Constant argument
-      - Heavily nested function calls (depth > 5)
+    Compute the Shannon entropy (bits per character) of a string.
+    """
+    if not s:
+        return 0.0
+    
+    freq = {}
+    for ch in s:
+        freq[ch] = freq.get(ch, 0) + 1
+    
+    total = len(s)
+    return -sum((c / total) * math.log2(c / total) for c in freq.values())
+
+
+def _format_finding(
+    category: str,
+    pattern: str,
+    lineno: int,
+    severity: str,
+    reason: str,
+    snippet: str = ""
+) -> Dict[str, Any]:
+    """
+    Create a standardized finding dictionary.
+    """
+    return {
+        "category": category,
+        "pattern": pattern,
+        "lineno": lineno,
+        "severity": severity,
+        "reason": reason,
+        "snippet": snippet[:120] if snippet else "",
+    }
+
+
+# ==========================================
+# ENTROPY-BASED SCANNING
+# ==========================================
+
+def _scan_entropy(source: str) -> List[Dict[str, Any]]:
+    """
+    Flag source lines (excluding comments and imports) that have
+    very high Shannon entropy — a sign of embedded encoded content.
     """
     findings = []
-
-    for node in ast.walk(tree):
-
-        # Count chr() calls in a concatenation chain
-        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-            chr_count = _count_chr_calls(node)
-            if chr_count >= 3:
-                lineno = getattr(node, "lineno", 0)
-                findings.append({
-                    "category": "chr() Chain Obfuscation",
-                    "pattern": f"chr() chain ({chr_count} calls)",
-                    "lineno": lineno,
-                    "severity": "HIGH",
-                    "reason": (
-                        f"Chain of {chr_count} chr() calls detected in AST — "
-                        "string is being constructed character-by-character to hide its content."
+    
+    for lineno, line in enumerate(source.splitlines(), start=1):
+        stripped = line.strip()
+        
+        # Skip comments, imports, blank lines
+        if (not stripped
+                or stripped.startswith("#")
+                or stripped.startswith("import ")
+                or stripped.startswith("from ")):
+            continue
+        
+        # Look for long string literals within the line
+        string_matches = re.findall(
+            r'["\']([A-Za-z0-9+/=_\-]{' + str(MIN_ENTROPY_LENGTH) + r',})["\']',
+            line
+        )
+        
+        for s in string_matches:
+            entropy = _shannon_entropy(s)
+            if entropy >= ENTROPY_THRESHOLD:
+                findings.append(_format_finding(
+                    category="High-Entropy Embedded String",
+                    pattern="High-entropy string in code line",
+                    lineno=lineno,
+                    severity="MEDIUM",
+                    reason=(
+                        f"String with Shannon entropy {entropy:.2f} bits/char found in source line "
+                        f"(threshold: {ENTROPY_THRESHOLD}) — likely an encoded payload, key, or obfuscated data."
                     ),
-                    "snippet": source_lines[lineno - 1].strip() if lineno <= len(source_lines) else "",
-                })
-
-        # __import__ with dynamic argument
-        if isinstance(node, ast.Call):
-            fname = node.func.id if isinstance(node.func, ast.Name) else ""
-            if fname == "__import__" and node.args:
-                if not isinstance(node.args[0], ast.Constant):
-                    lineno = getattr(node, "lineno", 0)
-                    findings.append({
-                        "category": "Dynamic Import Obfuscation",
-                        "pattern": "__import__() with dynamic argument (AST)",
-                        "lineno": lineno,
-                        "severity": "HIGH",
-                        "reason": (
-                            "__import__() called with a computed argument — "
-                            "the module being imported is determined at runtime."
-                        ),
-                        "snippet": source_lines[lineno - 1].strip() if lineno <= len(source_lines) else "",
-                    })
-
+                    snippet=stripped,
+                ))
+    
     return findings
 
 
+# ==========================================
+# AST-BASED RULES
+# ==========================================
+
 def _count_chr_calls(node: ast.AST) -> int:
-    """Count the number of chr() calls in a BinOp addition chain."""
+    """
+    Count the number of chr() calls in a BinOp addition chain.
+    """
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Name) and node.func.id == "chr":
             return 1
@@ -183,91 +134,119 @@ def _count_chr_calls(node: ast.AST) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------
-# Entropy-based detection on full lines
-# ---------------------------------------------------------------------------
-
-def _entropy_line_scan(source: str) -> List[Dict[str, Any]]:
+def _scan_ast_chr_chains(tree: ast.AST, source_lines: List[str]) -> List[Dict[str, Any]]:
     """
-    Flag source lines (excluding comments and imports) that have
-    very high Shannon entropy — a sign of embedded encoded content.
-    Threshold: >= 5.0 bits/char on a line >= 80 chars.
+    Detect chr() chains in AST.
     """
     findings = []
-    THRESHOLD = 5.0
-    MIN_LEN   = 80
-
-    for lineno, line in enumerate(source.splitlines(), start=1):
-        stripped = line.strip()
-        # Skip comments, imports, blank lines, and lines that are just strings
-        if (not stripped
-                or stripped.startswith("#")
-                or stripped.startswith("import ")
-                or stripped.startswith("from ")):
-            continue
-
-        # Only look at string content within the line
-        string_matches = re.findall(r'["\']([A-Za-z0-9+/=_\-]{' + str(MIN_LEN) + r',})["\']', line)
-        for s in string_matches:
-            ent = _shannon_entropy(s)
-            if ent >= THRESHOLD:
-                findings.append({
-                    "category": "High-Entropy Embedded String",
-                    "pattern": "High-entropy string in code line",
-                    "lineno": lineno,
-                    "severity": "MEDIUM",
-                    "reason": (
-                        f"String with Shannon entropy {ent:.2f} bits/char found in source line "
-                        f"(threshold: {THRESHOLD}) — likely an encoded payload, key, or obfuscated data."
+    
+    for node in ast.walk(tree):
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            chr_count = _count_chr_calls(node)
+            if chr_count >= 3:
+                lineno = getattr(node, "lineno", 0)
+                snippet = source_lines[lineno - 1].strip() if lineno <= len(source_lines) else ""
+                
+                findings.append(_format_finding(
+                    category="chr() Chain Obfuscation",
+                    pattern=f"chr() chain ({chr_count} calls)",
+                    lineno=lineno,
+                    severity="HIGH",
+                    reason=(
+                        f"Chain of {chr_count} chr() calls detected in AST — "
+                        "string is being constructed character-by-character to hide its content."
                     ),
-                    "snippet": stripped[:120],
-                })
-
+                    snippet=snippet,
+                ))
+    
     return findings
 
 
-def _shannon_entropy(s: str) -> float:
-    if not s:
-        return 0.0
-    freq = {}
-    for ch in s:
-        freq[ch] = freq.get(ch, 0) + 1
-    total = len(s)
-    return -sum((c / total) * math.log2(c / total) for c in freq.values())
+def _scan_ast_dynamic_imports(tree: ast.AST, source_lines: List[str]) -> List[Dict[str, Any]]:
+    """
+    Detect __import__() with dynamic (non-constant) arguments.
+    """
+    findings = []
+    
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            fname = node.func.id if isinstance(node.func, ast.Name) else ""
+            
+            if fname == "__import__" and node.args:
+                if not isinstance(node.args[0], ast.Constant):
+                    lineno = getattr(node, "lineno", 0)
+                    snippet = source_lines[lineno - 1].strip() if lineno <= len(source_lines) else ""
+                    
+                    findings.append(_format_finding(
+                        category="Dynamic Import Obfuscation",
+                        pattern="__import__() with dynamic argument (AST)",
+                        lineno=lineno,
+                        severity="HIGH",
+                        reason=(
+                            "__import__() called with a computed argument — "
+                            "the module being imported is determined at runtime."
+                        ),
+                        snippet=snippet,
+                    ))
+    
+    return findings
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
+def _scan_ast_rules(tree: ast.AST, source_lines: List[str]) -> List[Dict[str, Any]]:
+    """
+    Run all AST-level obfuscation rules.
+    """
+    findings = []
+    
+    findings.extend(_scan_ast_chr_chains(tree, source_lines))
+    findings.extend(_scan_ast_dynamic_imports(tree, source_lines))
+    
+    return findings
+
+
+# ==========================================
+# LINE-BASED SCANNING
+# ==========================================
+
+def _scan_line_rules(source_lines: List[str]) -> List[Dict[str, Any]]:
+    """
+    Scan each line with all regex patterns.
+    """
+    findings = []
+    
+    for lineno, line in enumerate(source_lines, start=1):
+        for name, pattern, severity, category, reason in LINE_RULES:
+            if pattern.search(line):
+                findings.append(_format_finding(
+                    category=category,
+                    pattern=name,
+                    lineno=lineno,
+                    severity=severity,
+                    reason=reason,
+                    snippet=line.strip(),
+                ))
+    
+    return findings
+
+
+# ==========================================
+# MAIN DETECTION FUNCTION
+# ==========================================
 
 def detect_obfuscation(tree: ast.AST, source: str) -> List[Dict[str, Any]]:
     """
     Run all obfuscation detection rules.
     Returns findings sorted by line number.
     """
-    findings = []
     source_lines = source.splitlines()
-
-    # Regex line rules
-    for lineno, line in enumerate(source_lines, start=1):
-        for name, pattern, severity, category, reason in LINE_RULES:
-            if pattern.search(line):
-                findings.append({
-                    "category": category,
-                    "pattern": name,
-                    "lineno": lineno,
-                    "severity": severity,
-                    "reason": reason,
-                    "snippet": line.strip()[:120],
-                })
-
-    # AST rules
-    findings.extend(_ast_obfuscation_rules(tree, source_lines))
-
-    # Entropy line scan
-    findings.extend(_entropy_line_scan(source))
-
-    # Deduplicate
+    
+    # Collect findings from all sources
+    findings = []
+    findings.extend(_scan_line_rules(source_lines))
+    findings.extend(_scan_ast_rules(tree, source_lines))
+    findings.extend(_scan_entropy(source))
+    
+    # Deduplicate by (lineno, pattern)
     seen = set()
     unique = []
     for f in findings:
@@ -275,6 +254,30 @@ def detect_obfuscation(tree: ast.AST, source: str) -> List[Dict[str, Any]]:
         if key not in seen:
             seen.add(key)
             unique.append(f)
-
+    
+    # Sort by line number
     unique.sort(key=lambda f: f["lineno"])
+    
     return unique
+
+
+# ==========================================
+# LEGACY SUPPORT
+# ==========================================
+
+def detect_obfuscation_legacy(tree: ast.AST, source: str) -> List[Dict[str, Any]]:
+    """
+    Legacy wrapper for backward compatibility.
+    """
+    return detect_obfuscation(tree, source)
+
+
+# ==========================================
+# EXPORTS
+# ==========================================
+
+__all__ = [
+    "detect_obfuscation",
+    "detect_obfuscation_legacy",
+    "LINE_RULES",
+]

@@ -1,0 +1,445 @@
+{
+  "dangerous_calls": {
+    "eval": {
+      "severity": 95,
+      "category": "Code Execution",
+      "reason": "Executes arbitrary Python expressions from a string.",
+      "cwe": "CWE-95",
+      "is_always_malicious": true,
+      "false_positive_risk": "LOW",
+      "context": "Almost never needed in production code"
+    },
+    "exec": {
+      "severity": 95,
+      "category": "Code Execution",
+      "reason": "Executes arbitrary Python code from a string.",
+      "cwe": "CWE-95",
+      "is_always_malicious": true,
+      "false_positive_risk": "LOW",
+      "context": "Almost never needed in production code"
+    },
+    "compile": {
+      "severity": 80,
+      "category": "Code Execution",
+      "reason": "Compiles and can execute arbitrary code strings.",
+      "cwe": "CWE-94",
+      "is_always_malicious": false,
+      "false_positive_risk": "MEDIUM",
+      "context": "Used in some code generation tools"
+    },
+    "__import__": {
+      "severity": 85,
+      "category": "Code Execution",
+      "reason": "Dynamic import — can load arbitrary modules at runtime.",
+      "cwe": "CWE-706",
+      "is_always_malicious": false,
+      "false_positive_risk": "MEDIUM",
+      "context": "Used in plugin systems and dynamic loading"
+    },
+    "os.system": {
+      "severity": 90,
+      "category": "Code Execution",
+      "reason": "Runs a shell command — direct OS command execution.",
+      "cwe": "CWE-78",
+      "is_always_malicious": false,
+      "false_positive_risk": "MEDIUM",
+      "context": "Used in system administration scripts"
+    },
+    "os.popen": {
+      "severity": 85,
+      "category": "Code Execution",
+      "reason": "Opens a pipe to a shell command.",
+      "cwe": "CWE-78",
+      "is_always_malicious": false,
+      "false_positive_risk": "MEDIUM",
+      "context": "Used in some automation scripts"
+    },
+    "os.execv": {
+      "severity": 80,
+      "category": "Code Execution",
+      "reason": "Replaces the current process with another program.",
+      "cwe": "CWE-78",
+      "is_always_malicious": false,
+      "false_positive_risk": "HIGH",
+      "context": "Rarely used - mostly in daemon processes"
+    },
+    "os.execve": {
+      "severity": 80,
+      "category": "Code Execution",
+      "reason": "execve variant — same risk.",
+      "cwe": "CWE-78",
+      "is_always_malicious": false,
+      "false_positive_risk": "HIGH",
+      "context": "Rarely used - mostly in daemon processes"
+    },
+    "os.spawn": {
+      "severity": 80,
+      "category": "Code Execution",
+      "reason": "Spawns a new process.",
+      "cwe": "CWE-78",
+      "is_always_malicious": false,
+      "false_positive_risk": "HIGH",
+      "context": "Rarely used in modern Python"
+    },
+    "subprocess.call": {
+      "severity": 85,
+      "category": "Code Execution",
+      "reason": "Executes a system command.",
+      "cwe": "CWE-78",
+      "is_always_malicious": false,
+      "false_positive_risk": "MEDIUM",
+      "context": "Common in system automation scripts"
+    },
+    "subprocess.run": {
+      "severity": 80,
+      "category": "Code Execution",
+      "reason": "Executes a system command (modern API).",
+      "cwe": "CWE-78",
+      "is_always_malicious": false,
+      "false_positive_risk": "MEDIUM",
+      "context": "Most common way to run commands - used in automation"
+    },
+    "subprocess.Popen": {
+      "severity": 85,
+      "category": "Code Execution",
+      "reason": "Opens a subprocess — full shell access.",
+      "cwe": "CWE-78",
+      "is_always_malicious": false,
+      "false_positive_risk": "MEDIUM",
+      "context": "Used for advanced process management"
+    },
+    "subprocess.check_output": {
+      "severity": 75,
+      "category": "Code Execution",
+      "reason": "Runs a command and captures its output.",
+      "cwe": "CWE-78",
+      "is_always_malicious": false,
+      "false_positive_risk": "MEDIUM",
+      "context": "Used to capture command output in scripts"
+    },
+    "importlib.import_module": {
+      "severity": 70,
+      "category": "Code Execution",
+      "reason": "Dynamically imports a module by name.",
+      "cwe": "CWE-706",
+      "is_always_malicious": false,
+      "false_positive_risk": "HIGH",
+      "context": "Common in plugin architectures and frameworks"
+    },
+    "ctypes.cdll.LoadLibrary": {
+      "severity": 90,
+      "category": "Code Execution",
+      "reason": "Loads a native shared library — can call arbitrary C code.",
+      "cwe": "CWE-94",
+      "is_always_malicious": false,
+      "false_positive_risk": "LOW",
+      "context": "Used in low-level system integration"
+    },
+    "ctypes.windll": {
+      "severity": 90,
+      "category": "Code Execution",
+      "reason": "Loads Windows DLLs directly.",
+      "cwe": "CWE-94",
+      "is_always_malicious": false,
+      "false_positive_risk": "LOW",
+      "context": "Windows-only system integration"
+    },
+    "socket.socket": {
+      "severity": 75,
+      "category": "Network",
+      "reason": "Creates a raw network socket.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "false_positive_risk": "MEDIUM",
+      "context": "Used in networking applications"
+    },
+    "socket.connect": {
+      "severity": 80,
+      "category": "Network",
+      "reason": "Opens a network connection.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "false_positive_risk": "MEDIUM",
+      "context": "Used in networking applications"
+    },
+    "requests.get": {
+      "severity": 50,
+      "category": "Network",
+      "reason": "HTTP GET — can retrieve remote resources or C2 instructions.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "false_positive_risk": "VERY_HIGH",
+      "context": "Most common HTTP method - used everywhere"
+    },
+    "requests.post": {
+      "severity": 75,
+      "category": "Network",
+      "reason": "HTTP POST — primary vector for exfiltrating data.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "false_positive_risk": "HIGH",
+      "context": "Common in web applications for form submission"
+    },
+    "requests.put": {
+      "severity": 75,
+      "category": "Network",
+      "reason": "HTTP PUT — can upload data to a remote server.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "false_positive_risk": "HIGH",
+      "context": "Used in REST APIs"
+    },
+    "requests.delete": {
+      "severity": 50,
+      "category": "Network",
+      "reason": "HTTP DELETE — can trigger remote actions.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "false_positive_risk": "VERY_HIGH",
+      "context": "Common in REST APIs"
+    },
+    "urllib.request.urlopen": {
+      "severity": 50,
+      "category": "Network",
+      "reason": "Opens a URL — can fetch or post data externally.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "false_positive_risk": "VERY_HIGH",
+      "context": "Python standard library - used everywhere"
+    },
+    "urllib.request.urlretrieve": {
+      "severity": 60,
+      "category": "Network",
+      "reason": "Downloads a file from a URL.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "false_positive_risk": "HIGH",
+      "context": "Used to download files - sometimes legitimate"
+    },
+    "base64.b64encode": {
+      "severity": 30,
+      "category": "Obfuscation",
+      "reason": "Base64 encoding — often used to hide data before exfiltration.",
+      "cwe": "CWE-20",
+      "is_always_malicious": false,
+      "false_positive_risk": "VERY_HIGH",
+      "context": "Every Python project uses base64 for legitimate encoding"
+    },
+    "base64.b64decode": {
+      "severity": 30,
+      "category": "Obfuscation",
+      "reason": "Base64 decoding — often used to unpack hidden payloads.",
+      "cwe": "CWE-20",
+      "is_always_malicious": false,
+      "false_positive_risk": "VERY_HIGH",
+      "context": "Every Python project uses base64 for legitimate decoding"
+    },
+    "base64.encodebytes": {
+      "severity": 30,
+      "category": "Obfuscation",
+      "reason": "Alternate base64 encoder — same risk.",
+      "cwe": "CWE-20",
+      "is_always_malicious": false,
+      "false_positive_risk": "VERY_HIGH",
+      "context": "Less common but still used legitimately"
+    },
+    "zlib.compress": {
+      "severity": 25,
+      "category": "Obfuscation",
+      "reason": "Compression — can be used to pack obfuscated payloads.",
+      "cwe": "CWE-20",
+      "is_always_malicious": false,
+      "false_positive_risk": "VERY_HIGH",
+      "context": "Standard compression - used everywhere"
+    },
+    "zlib.decompress": {
+      "severity": 25,
+      "category": "Obfuscation",
+      "reason": "Decompression — can be used to unpack obfuscated payloads.",
+      "cwe": "CWE-20",
+      "is_always_malicious": false,
+      "false_positive_risk": "VERY_HIGH",
+      "context": "Standard compression - used everywhere"
+    },
+    "gzip.compress": {
+      "severity": 25,
+      "category": "Obfuscation",
+      "reason": "Compression — same dual-use as zlib.",
+      "cwe": "CWE-20",
+      "is_always_malicious": false,
+      "false_positive_risk": "VERY_HIGH",
+      "context": "Standard compression - used everywhere"
+    },
+    "gzip.decompress": {
+      "severity": 25,
+      "category": "Obfuscation",
+      "reason": "Decompression — same dual-use as zlib.",
+      "cwe": "CWE-20",
+      "is_always_malicious": false,
+      "false_positive_risk": "VERY_HIGH",
+      "context": "Standard compression - used everywhere"
+    },
+    "pickle.loads": {
+      "severity": 95,
+      "category": "Unsafe Deserialization",
+      "reason": "Deserializes untrusted data — can execute arbitrary code.",
+      "cwe": "CWE-502",
+      "is_always_malicious": false,
+      "false_positive_risk": "LOW",
+      "context": "Used in legitimate serialization but dangerous with untrusted data"
+    },
+    "pickle.load": {
+      "severity": 95,
+      "category": "Unsafe Deserialization",
+      "reason": "Same as pickle.loads — file-based deserialization.",
+      "cwe": "CWE-502",
+      "is_always_malicious": false,
+      "false_positive_risk": "LOW",
+      "context": "Used in legitimate serialization but dangerous with untrusted data"
+    },
+    "marshal.loads": {
+      "severity": 85,
+      "category": "Unsafe Deserialization",
+      "reason": "Deserializes bytecode — can run arbitrary Python code.",
+      "cwe": "CWE-502",
+      "is_always_malicious": false,
+      "false_positive_risk": "MEDIUM",
+      "context": "Rarely used in production code"
+    },
+    "os.getenv": {
+      "severity": 20,
+      "category": "Reconnaissance",
+      "reason": "Reads environment variables — can harvest secrets from env.",
+      "cwe": "CWE-200",
+      "is_always_malicious": false,
+      "false_positive_risk": "VERY_HIGH",
+      "context": "Every Python project uses this for configuration"
+    },
+    "os.environ": {
+      "severity": 35,
+      "category": "Reconnaissance",
+      "reason": "Access to all environment variables.",
+      "cwe": "CWE-200",
+      "is_always_malicious": false,
+      "false_positive_risk": "VERY_HIGH",
+      "context": "Common in configuration management"
+    },
+    "getpass.getpass": {
+      "severity": 80,
+      "category": "Credential Theft",
+      "reason": "Prompts for and captures a password.",
+      "cwe": "CWE-522",
+      "is_always_malicious": false,
+      "false_positive_risk": "MEDIUM",
+      "context": "Used in legitimate scripts for secure password input"
+    },
+    "os.getlogin": {
+      "severity": 20,
+      "category": "Reconnaissance",
+      "reason": "Retrieves the current user's login name.",
+      "cwe": "CWE-200",
+      "is_always_malicious": false,
+      "false_positive_risk": "VERY_HIGH",
+      "context": "Used for user identification in scripts"
+    },
+    "platform.system": {
+      "severity": 15,
+      "category": "Reconnaissance",
+      "reason": "Retrieves the system/OS name.",
+      "cwe": "CWE-200",
+      "is_always_malicious": false,
+      "false_positive_risk": "VERY_HIGH",
+      "context": "Used in cross-platform code everywhere"
+    },
+    "platform.node": {
+      "severity": 15,
+      "category": "Reconnaissance",
+      "reason": "Retrieves the network hostname.",
+      "cwe": "CWE-200",
+      "is_always_malicious": false,
+      "false_positive_risk": "VERY_HIGH",
+      "context": "Used in logging and system info"
+    },
+    "socket.gethostname": {
+      "severity": 15,
+      "category": "Reconnaissance",
+      "reason": "Retrieves the local hostname.",
+      "cwe": "CWE-200",
+      "is_always_malicious": false,
+      "false_positive_risk": "VERY_HIGH",
+      "context": "Used in networking and logging"
+    },
+    "winreg.OpenKey": {
+      "severity": 80,
+      "category": "Persistence",
+      "reason": "Opens a Windows Registry key.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "false_positive_risk": "LOW",
+      "context": "Windows-specific - used in legitimate Windows apps"
+    },
+    "winreg.SetValueEx": {
+      "severity": 85,
+      "category": "Persistence",
+      "reason": "Writes a value to the Registry — persistence mechanism.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "false_positive_risk": "LOW",
+      "context": "Used in legitimate Windows configuration"
+    },
+    "winreg.CreateKey": {
+      "severity": 80,
+      "category": "Persistence",
+      "reason": "Creates a Windows Registry key.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "false_positive_risk": "LOW",
+      "context": "Used in legitimate Windows applications"
+    },
+    "shutil.rmtree": {
+      "severity": 70,
+      "category": "Destructive",
+      "reason": "Recursively deletes a directory — anti-forensic potential.",
+      "cwe": "CWE-73",
+      "is_always_malicious": false,
+      "false_positive_risk": "MEDIUM",
+      "context": "Used in cleanup operations"
+    },
+    "os.remove": {
+      "severity": 50,
+      "category": "File Access",
+      "reason": "Deletes a file.",
+      "cwe": "CWE-73",
+      "is_always_malicious": false,
+      "false_positive_risk": "HIGH",
+      "context": "Used in file management operations"
+    },
+    "os.unlink": {
+      "severity": 50,
+      "category": "File Access",
+      "reason": "Same as os.remove.",
+      "cwe": "CWE-73",
+      "is_always_malicious": false,
+      "false_positive_risk": "HIGH",
+      "context": "Unix variant - used in file management"
+    },
+    "os.rmdir": {
+      "severity": 40,
+      "category": "File Access",
+      "reason": "Deletes an empty directory.",
+      "cwe": "CWE-73",
+      "is_always_malicious": false,
+      "false_positive_risk": "HIGH",
+      "context": "Used in directory management"
+    },
+    "open": {
+      "severity": 25,
+      "category": "File Access",
+      "reason": "Opens a file — low risk alone, but combined with network = exfiltration.",
+      "cwe": "CWE-73",
+      "is_always_malicious": false,
+      "false_positive_risk": "VERY_HIGH",
+      "context": "Every Python program uses this"
+    }
+  }
+}

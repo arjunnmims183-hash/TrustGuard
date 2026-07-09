@@ -1,0 +1,364 @@
+{
+  "risky_imports": {
+    "subprocess": {
+      "severity": 90,
+      "category": "Code Execution",
+      "reason": "Can execute arbitrary system commands.",
+      "cwe": "CWE-78",
+      "is_always_malicious": false,
+      "context": "Often used legitimately for system automation"
+    },
+    "importlib": {
+      "severity": 80,
+      "category": "Code Execution",
+      "reason": "Allows dynamic module loading — can load malicious code at runtime.",
+      "cwe": "CWE-706",
+      "is_always_malicious": false,
+      "context": "Common in plugin systems and dynamic loading"
+    },
+    "ctypes": {
+      "severity": 85,
+      "category": "Code Execution",
+      "reason": "Direct access to C libraries — can call arbitrary native code.",
+      "cwe": "CWE-94",
+      "is_always_malicious": false,
+      "context": "Often used for legitimate system integration"
+    },
+    "cffi": {
+      "severity": 85,
+      "category": "Code Execution",
+      "reason": "C Foreign Function Interface — similar risk to ctypes.",
+      "cwe": "CWE-94",
+      "is_always_malicious": false,
+      "context": "Used for C library bindings"
+    },
+    "pty": {
+      "severity": 85,
+      "category": "Code Execution",
+      "reason": "Provides pseudo-terminal — can spawn interactive shells.",
+      "cwe": "CWE-78",
+      "is_always_malicious": false,
+      "context": "Used in SSH and terminal applications"
+    },
+    "os": {
+      "severity": 60,
+      "category": "System Access",
+      "reason": "Provides access to OS-level operations (files, processes, env).",
+      "cwe": "CWE-73",
+      "is_always_malicious": false,
+      "context": "Virtually all Python scripts use this"
+    },
+    "sys": {
+      "severity": 30,
+      "category": "System Access",
+      "reason": "Can modify Python runtime, path, and exit behavior.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Almost every Python script uses sys"
+    },
+    "socket": {
+      "severity": 80,
+      "category": "Network",
+      "reason": "Enables raw TCP/UDP network communication.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Common in networking applications"
+    },
+    "requests": {
+      "severity": 55,
+      "category": "Network",
+      "reason": "HTTP client — can send data to external servers.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Most common HTTP library - used in almost every web project"
+    },
+    "urllib": {
+      "severity": 50,
+      "category": "Network",
+      "reason": "Another HTTP client — can fetch or post data externally.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Python standard library HTTP client"
+    },
+    "http": {
+      "severity": 50,
+      "category": "Network",
+      "reason": "Low-level HTTP communication.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Python standard library HTTP components"
+    },
+    "ftplib": {
+      "severity": 80,
+      "category": "Network",
+      "reason": "FTP client — can upload files to remote servers.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Legitimate FTP client for file transfers"
+    },
+    "smtplib": {
+      "severity": 80,
+      "category": "Network",
+      "reason": "SMTP client — can send emails (data exfiltration vector).",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Used in legitimate email applications"
+    },
+    "paramiko": {
+      "severity": 80,
+      "category": "Network",
+      "reason": "SSH client — can connect to remote machines and execute commands.",
+      "cwe": "CWE-78",
+      "is_always_malicious": false,
+      "context": "Legitimate SSH client for remote access"
+    },
+    "base64": {
+      "severity": 35,
+      "category": "Obfuscation",
+      "reason": "Commonly used to encode/obfuscate payloads or exfiltrate data.",
+      "cwe": "CWE-20",
+      "is_always_malicious": false,
+      "context": "Almost every Python project uses base64 for legitimate encoding"
+    },
+    "zlib": {
+      "severity": 30,
+      "category": "Obfuscation",
+      "reason": "Compression — can be used to pack/unpack obfuscated payloads.",
+      "cwe": "CWE-20",
+      "is_always_malicious": false,
+      "context": "Standard compression library - used everywhere"
+    },
+    "gzip": {
+      "severity": 30,
+      "category": "Obfuscation",
+      "reason": "Compression — same dual-use as zlib.",
+      "cwe": "CWE-20",
+      "is_always_malicious": false,
+      "context": "Standard compression library - used everywhere"
+    },
+    "pickle": {
+      "severity": 90,
+      "category": "Unsafe Deserialization",
+      "reason": "Deserializing untrusted pickle data allows arbitrary code execution.",
+      "cwe": "CWE-502",
+      "is_always_malicious": false,
+      "context": "Common in data serialization but dangerous with untrusted data"
+    },
+    "marshal": {
+      "severity": 85,
+      "category": "Unsafe Deserialization",
+      "reason": "Similar to pickle — can execute code on deserialization.",
+      "cwe": "CWE-502",
+      "is_always_malicious": false,
+      "context": "Python's internal serialization - rarely used directly"
+    },
+    "shelve": {
+      "severity": 85,
+      "category": "Unsafe Deserialization",
+      "reason": "Built on pickle — same deserialization risk.",
+      "cwe": "CWE-502",
+      "is_always_malicious": false,
+      "context": "Persistence library using pickle internally"
+    },
+    "shutil": {
+      "severity": 50,
+      "category": "File Access",
+      "reason": "File operations including copy, move, delete of entire trees.",
+      "cwe": "CWE-73",
+      "is_always_malicious": false,
+      "context": "Standard file operation library - used everywhere"
+    },
+    "tempfile": {
+      "severity": 35,
+      "category": "File Access",
+      "reason": "Creates temporary files — sometimes used to stage payloads.",
+      "cwe": "CWE-73",
+      "is_always_malicious": false,
+      "context": "Standard library for temporary files - very common"
+    },
+    "glob": {
+      "severity": 25,
+      "category": "File Access",
+      "reason": "File discovery — can be used to map out filesystem contents.",
+      "cwe": "CWE-200",
+      "is_always_malicious": false,
+      "context": "Standard library for file pattern matching - very common"
+    },
+    "fnmatch": {
+      "severity": 20,
+      "category": "File Access",
+      "reason": "File pattern matching — similar to glob.",
+      "cwe": "CWE-200",
+      "is_always_malicious": false,
+      "context": "Standard library for filename matching - very common"
+    },
+    "winreg": {
+      "severity": 85,
+      "category": "Persistence",
+      "reason": "Windows Registry access — classic persistence mechanism.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Windows-only - used in legitimate Windows applications"
+    },
+    "sched": {
+      "severity": 60,
+      "category": "Persistence",
+      "reason": "Task scheduler — can be used to create time-triggered logic bombs.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Used for scheduling tasks in applications"
+    },
+    "threading": {
+      "severity": 25,
+      "category": "Execution",
+      "reason": "Multi-threading — can be used to hide background activity.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Virtually every Python application uses threading"
+    },
+    "multiprocessing": {
+      "severity": 25,
+      "category": "Execution",
+      "reason": "Multi-process spawning — can obscure malicious child processes.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Standard library for parallel processing - very common"
+    },
+    "signal": {
+      "severity": 40,
+      "category": "Execution",
+      "reason": "Signal handling — can intercept and suppress shutdown signals.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Used for graceful shutdown and signal handling"
+    },
+    "platform": {
+      "severity": 20,
+      "category": "Reconnaissance",
+      "reason": "System fingerprinting — OS, hostname, architecture.",
+      "cwe": "CWE-200",
+      "is_always_malicious": false,
+      "context": "Standard library - used everywhere for cross-platform code"
+    },
+    "psutil": {
+      "severity": 50,
+      "category": "Reconnaissance",
+      "reason": "Process/system monitoring — can enumerate running processes and connections.",
+      "cwe": "CWE-200",
+      "is_always_malicious": false,
+      "context": "Commonly used for system monitoring tools"
+    },
+    "grp": {
+      "severity": 30,
+      "category": "Reconnaissance",
+      "reason": "Reads Unix group database — system enumeration.",
+      "cwe": "CWE-200",
+      "is_always_malicious": false,
+      "context": "Unix-specific - used for group management"
+    },
+    "getpass": {
+      "severity": 80,
+      "category": "Credential Theft",
+      "reason": "Reads passwords from the terminal — strong exfiltration signal.",
+      "cwe": "CWE-522",
+      "is_always_malicious": false,
+      "context": "Used for secure password input in scripts"
+    },
+    "keyring": {
+      "severity": 85,
+      "category": "Credential Theft",
+      "reason": "Reads stored system credentials.",
+      "cwe": "CWE-522",
+      "is_always_malicious": false,
+      "context": "Used for credential management in legitimate apps"
+    },
+    "pwd": {
+      "severity": 70,
+      "category": "Credential Theft",
+      "reason": "Reads Unix password database entries.",
+      "cwe": "CWE-522",
+      "is_always_malicious": false,
+      "context": "Unix-specific - used for user management"
+    },
+    "cryptography": {
+      "severity": 40,
+      "category": "Crypto",
+      "reason": "Legitimate use is common, but also used to encrypt/decrypt payloads.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Most common crypto library - used everywhere for security"
+    },
+    "Crypto": {
+      "severity": 40,
+      "category": "Crypto",
+      "reason": "PyCryptodome — same dual-use as cryptography.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Legacy crypto library - used in many projects"
+    },
+    "hashlib": {
+      "severity": 25,
+      "category": "Crypto",
+      "reason": "Hashing library — low risk but sometimes used to hash stolen data.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Standard library - used everywhere for hashing"
+    },
+    "json": {
+      "severity": 10,
+      "category": "Data Handling",
+      "reason": "Standard JSON library - low risk.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Virtually every Python project uses json"
+    },
+    "re": {
+      "severity": 10,
+      "category": "Data Handling",
+      "reason": "Regular expressions - low risk.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Virtually every Python project uses re"
+    },
+    "math": {
+      "severity": 5,
+      "category": "Data Handling",
+      "reason": "Math operations - minimal risk.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Virtually every Python project uses math"
+    },
+    "random": {
+      "severity": 15,
+      "category": "Data Handling",
+      "reason": "Random number generation - minimal risk.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Used everywhere for random operations"
+    },
+    "datetime": {
+      "severity": 5,
+      "category": "Data Handling",
+      "reason": "Date/time operations - minimal risk.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Virtually every Python project uses datetime"
+    },
+    "time": {
+      "severity": 10,
+      "category": "Data Handling",
+      "reason": "Time operations - minimal risk.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Virtually every Python project uses time"
+    },
+    "logging": {
+      "severity": 10,
+      "category": "Data Handling",
+      "reason": "Logging operations - minimal risk.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Every Python application uses logging"
+    }
+  }
+}

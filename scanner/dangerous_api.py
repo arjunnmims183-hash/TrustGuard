@@ -1,188 +1,59 @@
-"""
-dangerous_api.py
-----------------
-Detects risky/dangerous function calls and imports in a parsed Python file.
+import json
+import os
+from typing import Dict, List, Any, Optional
 
-Works in two layers:
-  1. Import-level  - flags risky modules that were imported at all
-  2. Call-level    - flags specific dangerous function/method calls
+class DangerousAPIAnalyzer:
+    def __init__(self, json_path: Optional[str] = None):
+        self.dangerous_calls = self._load_json(json_path)
 
-Each finding includes:
-    category    - what type of risk (code execution, network, obfuscation, etc.)
-    name        - the import or call name
-    lineno      - where it appears
-    severity    - LOW / MEDIUM / HIGH
-    reason      - plain-English explanation
-"""
+    def _load_json(self, json_path: Optional[str] = None) -> Dict[str, Any]:
+        if json_path is None:
+            for path in ["dangerous_calls.json", os.path.join(os.path.dirname(__file__), "dangerous_calls.json")]:
+                if os.path.exists(path):
+                    json_path = path
+                    break
 
-import ast
-from typing import List, Dict, Any, Optional, Set, Tuple
+        if not json_path or not os.path.exists(json_path):
+            return {}
 
-# ==========================================
-# DATA IMPORTS
-# ==========================================
+        try:
+            with open(json_path, 'r', encoding='utf-8') as f:
+                return json.load(f).get("dangerous_calls", {})
+        except Exception:
+            return {}
 
-from scanner.data.dangerous_imports import RISKY_IMPORTS
-from scanner.data.dangerous_calls import DANGEROUS_CALLS
+    def analyze_parser_result(self, parser_result: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+        details = {}
+        for call in parser_result.get('calls_detailed', []):
+            name = call.get('name', '')
+            if name:
+                if name not in details:
+                    details[name] = {'lines': [], 'args': [], 'keywords': []}
+                details[name]['lines'].append(call.get('line', 0))
+                details[name]['args'] = call.get('args', [])[:3]
+                details[name]['keywords'] = call.get('keywords', [])
 
+        # Score each call
+        scored = []
+        for name in set(parser_result.get('calls', [])):
+            info = self.dangerous_calls.get(name, {})
+            d = details.get(name, {})
 
-# ==========================================
-# HELPER FUNCTIONS
-# ==========================================
+            scored.append({
+                "name": name,
+                "severity": info.get('severity', 0),
+                "category": info.get('category', ''),
+                "reason": info.get('reason', ''),
+                "cwe": info.get('cwe', ''),
+                "lines": d.get('lines', []),
+                "args": d.get('args', []),
+                "keywords": d.get('keywords', [])
+            })
 
-def _resolve_call_name(node: ast.expr) -> str:
-    """
-    Reconstruct a dotted call name from the AST node.
-    
-    Examples:
-        - requests.post -> "requests.post"
-        - os.getenv -> "os.getenv"
-        - eval -> "eval"
-    """
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        parent = _resolve_call_name(node.value)
-        return f"{parent}.{node.attr}" if parent else node.attr
-    return ""
+        # Sort by severity (highest first)
+        scored.sort(key=lambda x: x['severity'], reverse=True)
 
-
-def _get_import_root(module_name: str) -> str:
-    """
-    Get the root of an import name.
-    
-    Examples:
-        - requests.post -> "requests"
-        - os.path -> "os"
-        - PIL.Image -> "PIL"
-    """
-    return module_name.split(".")[0] if module_name else ""
-
-
-def _format_finding(
-    finding_type: str,
-    name: str,
-    lineno: int,
-    severity: str,
-    category: str,
-    reason: str
-) -> Dict[str, Any]:
-    """
-    Create a standardized finding dictionary.
-    """
-    return {
-        "type": finding_type,
-        "name": name,
-        "lineno": lineno,
-        "severity": severity,
-        "category": category,
-        "reason": reason,
-    }
-
-
-# ==========================================
-# DETECTION FUNCTIONS
-# ==========================================
-
-def _scan_imports(node: ast.AST) -> List[Dict[str, Any]]:
-    """
-    Scan import nodes for risky imports.
-    """
-    findings = []
-    
-    # ast.Import: import x, y, z
-    if isinstance(node, ast.Import):
-        for alias in node.names:
-            root = _get_import_root(alias.name)
-            if root in RISKY_IMPORTS:
-                severity, category, reason = RISKY_IMPORTS[root]
-                findings.append(_format_finding(
-                    "import", alias.name, getattr(node, "lineno", 0),
-                    severity, category, reason
-                ))
-    
-    # ast.ImportFrom: from x import y, z
-    elif isinstance(node, ast.ImportFrom):
-        if node.module:
-            root = _get_import_root(node.module)
-            if root in RISKY_IMPORTS:
-                severity, category, reason = RISKY_IMPORTS[root]
-                findings.append(_format_finding(
-                    "import", node.module, getattr(node, "lineno", 0),
-                    severity, category, reason
-                ))
-    
-    return findings
-
-
-def _scan_calls(node: ast.Call) -> List[Dict[str, Any]]:
-    """
-    Scan a call node for dangerous calls.
-    """
-    findings = []
-    
-    name = _resolve_call_name(node.func)
-    if name in DANGEROUS_CALLS:
-        severity, category, reason = DANGEROUS_CALLS[name]
-        findings.append(_format_finding(
-            "call", name, getattr(node, "lineno", 0),
-            severity, category, reason
-        ))
-    
-    return findings
-
-
-# ==========================================
-# MAIN DETECTION FUNCTION
-# ==========================================
-
-def detect_dangerous_apis(tree: ast.AST, source: str) -> List[Dict[str, Any]]:
-    """
-    Run both import-level and call-level detection on the parsed AST.
-
-    Returns a list of findings, each containing:
-        type        - "import" or "call"
-        name        - the flagged name
-        lineno      - line number
-        severity    - LOW / MEDIUM / HIGH
-        category    - risk category string
-        reason      - plain-English explanation
-    """
-    findings = []
-    
-    for node in ast.walk(tree):
-        # Import-level scan
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            findings.extend(_scan_imports(node))
-        
-        # Call-level scan
-        elif isinstance(node, ast.Call):
-            findings.extend(_scan_calls(node))
-    
-    # Sort by line number for readable output
-    findings.sort(key=lambda f: f["lineno"])
-    
-    return findings
-
-
-# ==========================================
-# LEGACY SUPPORT
-# ==========================================
-
-def detect_dangerous_apis_legacy(tree: ast.AST, source: str) -> List[Dict[str, Any]]:
-    """
-    Legacy wrapper for backward compatibility.
-    """
-    return detect_dangerous_apis(tree, source)
-
-
-# ==========================================
-# EXPORTS
-# ==========================================
-
-__all__ = [
-    "detect_dangerous_apis",
-    "detect_dangerous_apis_legacy",
-    "RISKY_IMPORTS",
-    "DANGEROUS_CALLS",
-]
+        return result.append({
+            "total_calls": len(scored),
+            "scored_calls": scored
+        })

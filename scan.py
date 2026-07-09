@@ -1,6 +1,7 @@
 import sys
 
 from datetime import datetime
+import scanner.dangerous_imports
 import scanner.dangerous_api
 
 import scanner.parser as parser
@@ -11,7 +12,7 @@ VERSION = "3.0"
 
 def run_stage(name: str, func, *args, **kwargs) -> Any:
     """Run pipeline stage with logging."""
-    print(f"[*] {name:<30} ...", end=" ", flush=True)
+    print(f"[*] {name:<30} ...", end="\n", flush=True)
     try:
         return func(*args, **kwargs)
     except Exception as e:
@@ -37,7 +38,10 @@ def run_scan(
 
         dangerousAPIAnalyzer = scanner.dangerous_api.DangerousAPIAnalyzer()
         result = [{"file": parser_result.get('file', 'unknown')}]
-        result = run_stage("Dangerous API scan", dangerousAPIAnalyzer.analyze_parser_result,parser_result, result)
+        result.append(run_stage("Dangerous API scan", dangerousAPIAnalyzer.analyze_parser_result,parser_result))
+
+        dangerousCallsAnalyzer = scanner.dangerous_imports.DangerousImports()
+        result.append(run_stage("Dangerous Calls scan", dangerousCallsAnalyzer.analyze_parser_result, parser_result))
 
         print(result)
     except RuntimeError as e:

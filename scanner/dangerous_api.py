@@ -1,28 +1,12 @@
-import json
-import os
 from typing import Dict, List, Any, Optional
+
+from scanner.io import import_json
 
 class DangerousAPIAnalyzer:
     def __init__(self, json_path: Optional[str] = None):
-        self.dangerous_calls = self._load_json(json_path)
+        self.dangerous_calls = import_json._load_json("risky_calls.json").get('dangerous_calls', {})
 
-    def _load_json(self, json_path: Optional[str] = None) -> Dict[str, Any]:
-        if json_path is None:
-            for path in ["dangerous_calls.json", os.path.join(os.path.dirname(__file__), "dangerous_calls.json")]:
-                if os.path.exists(path):
-                    json_path = path
-                    break
-
-        if not json_path or not os.path.exists(json_path):
-            return {}
-
-        try:
-            with open(json_path, 'r', encoding='utf-8') as f:
-                return json.load(f).get("dangerous_calls", {})
-        except Exception:
-            return {}
-
-    def analyze_parser_result(self, parser_result: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+    def analyze_parser_result(self, parser_result: Dict[str, Any]) -> Dict[str, Any]:
         details = {}
         for call in parser_result.get('calls_detailed', []):
             name = call.get('name', '')
@@ -53,7 +37,4 @@ class DangerousAPIAnalyzer:
         # Sort by severity (highest first)
         scored.sort(key=lambda x: x['severity'], reverse=True)
 
-        return result.append({
-            "total_calls": len(scored),
-            "scored_calls": scored
-        })
+        return {"api_analysis": {"total_calls": len(scored), "scored_calls": scored}}

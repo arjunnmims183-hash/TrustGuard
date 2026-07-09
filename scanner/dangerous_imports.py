@@ -46,4 +46,4 @@ class DangerousImports:
 
         scored.sort(key=lambda x: x['severity'], reverse=True)
 
-        return {{"import_analysis": {"total_imports": len(scored), "scored_imports": scored}}
+        return {"import_analysis": {"total_imports": len(scored), "scored_imports": scored}}

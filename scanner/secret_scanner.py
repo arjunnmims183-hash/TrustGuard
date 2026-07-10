@@ -7,7 +7,7 @@ from scanner.io import import_json
 class SecretScanner:
     def __init__(self):
         """Initialize with secret patterns JSON."""
-        vulnerable_pattern_config = import_json._load_json("secret_pattern.json")
+        vulnerable_pattern_config = import_json._load_json("secret_patterns.json")
         self.entropy_config = vulnerable_pattern_config.get('entropy_config', {})
         self.patterns = vulnerable_pattern_config.get('secret_patterns', {})
         self.compiled = self._compile_patterns()

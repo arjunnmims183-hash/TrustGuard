@@ -106,7 +106,6 @@ class Parser:
         return calls
 
     def _get_calls_detailed(self) -> List[Dict[str, Any]]:
-        """Get detailed calls with line numbers and args."""
         calls = []
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Call):
@@ -117,8 +116,11 @@ class Parser:
                         "line": node.lineno,
                         "arg_count": len(node.args),
                         "kw_count": len(node.keywords),
-                        "args": [self._get_name(a) for a in node.args[:5]],
-                        "keywords": [kw.arg for kw in node.keywords[:3] if kw.arg],
+                        "args": [self._get_name(a) for a in node.args],
+                        "keywords": [
+                            {"arg": kw.arg, "value": self._get_name(kw.value)}
+                            for kw in node.keywords if kw.arg
+                        ]
                     })
         return calls
 
@@ -345,8 +347,8 @@ class Parser:
         if isinstance(node, ast.Constant):
             return str(node.value)
         return getattr(node, 'id', getattr(node, 'attr', getattr(node, 'name', str(node)[:30])))
-
-
-# parser = Parser(r'C:\Users\vijen\Downloads\TrustGuard\test_samples\credential_theft.py')
+#
+#
+# parser = Parser(r'C:\Users\Acer\Downloads\TrustGuard\test_samples\credential_theft.py')
 # result = parser.parse()
 # print(result)

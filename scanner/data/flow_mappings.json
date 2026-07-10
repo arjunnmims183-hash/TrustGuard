@@ -2,193 +2,240 @@
   "source_functions": {
     "os.getenv": {
       "type": "env_var",
-      "description": "Reads information from environment variables."
+      "description": "Reads information from environment variables.",
+      "category": "credential_access_calls"
     },
     "os.environ.get": {
       "type": "env_var",
-      "description": "Reads information from environment variables."
+      "description": "Reads information from environment variables.",
+      "category": "credential_access_calls"
     },
     "os.environ.__getitem__": {
       "type": "env_var",
-      "description": "Reads information from environment variables."
+      "description": "Reads information from environment variables.",
+      "category": "credential_access_calls"
     },
     "input": {
       "type": "user_input",
-      "description": "Collects user supplied input from stdin."
+      "description": "Collects user supplied input from stdin.",
+      "category": "recon_calls"
     },
     "raw_input": {
       "type": "user_input",
-      "description": "Collects user supplied input from stdin (Python 2)."
+      "description": "Collects user supplied input from stdin (Python 2).",
+      "category": "recon_calls"
     },
     "open": {
       "type": "file_read",
-      "description": "Opens and reads data from a local file."
+      "description": "Opens and reads data from a local file.",
+      "category": "file_read_calls"
     },
     "file.read": {
       "type": "file_read",
-      "description": "Reads data from a file object."
+      "description": "Reads data from a file object.",
+      "category": "file_read_calls"
     },
     "pd.read_csv": {
       "type": "file_read",
-      "description": "Reads CSV data from a file."
+      "description": "Reads CSV data from a file.",
+      "category": "file_read_calls"
     },
     "pd.read_excel": {
       "type": "file_read",
-      "description": "Reads Excel data from a file."
+      "description": "Reads Excel data from a file.",
+      "category": "file_read_calls"
     },
     "pd.read_json": {
       "type": "file_read",
-      "description": "Reads JSON data from a file."
+      "description": "Reads JSON data from a file.",
+      "category": "file_read_calls"
     },
     "json.load": {
       "type": "file_read",
-      "description": "Loads JSON data from a file."
+      "description": "Loads JSON data from a file.",
+      "category": "file_read_calls"
     },
     "json.loads": {
       "type": "user_input",
-      "description": "Parses JSON data from a string."
+      "description": "Parses JSON data from a string.",
+      "category": "recon_calls"
     },
     "requests.get": {
       "type": "network_recv",
-      "description": "Receives data from a remote HTTP source."
+      "description": "Receives data from a remote HTTP source.",
+      "category": "network_receive_calls"
     },
     "requests.post": {
       "type": "network_recv",
-      "description": "Receives response from an HTTP POST request."
+      "description": "Receives response from an HTTP POST request.",
+      "category": "network_receive_calls"
     },
     "urllib.request.urlopen": {
       "type": "network_recv",
-      "description": "Opens and reads data from a URL."
+      "description": "Opens and reads data from a URL.",
+      "category": "network_receive_calls"
     },
     "urllib.request.urlretrieve": {
       "type": "network_recv",
-      "description": "Retrieves data from a URL and saves to a file."
+      "description": "Retrieves data from a URL and saves to a file.",
+      "category": "network_receive_calls"
     },
     "socket.recv": {
       "type": "network_recv",
-      "description": "Receives data from a network socket."
+      "description": "Receives data from a network socket.",
+      "category": "network_receive_calls"
     },
     "socket.recvfrom": {
       "type": "network_recv",
-      "description": "Receives data from a network socket."
+      "description": "Receives data from a network socket.",
+      "category": "network_receive_calls"
     },
     "getpass.getpass": {
       "type": "credential",
-      "description": "Collects password input from the user."
+      "description": "Collects password input from the user.",
+      "category": "credential_access_calls"
     },
     "getpass.getuser": {
       "type": "credential",
-      "description": "Gets the current username."
+      "description": "Gets the current username.",
+      "category": "credential_access_calls"
     },
     "win32api.GetUserName": {
       "type": "credential",
-      "description": "Gets the Windows username."
+      "description": "Gets the Windows username.",
+      "category": "credential_access_calls"
     },
     "os.listdir": {
       "type": "file_read",
-      "description": "Lists files in a directory."
+      "description": "Lists files in a directory.",
+      "category": "file_read_calls"
     },
     "os.walk": {
       "type": "file_read",
-      "description": "Walks through directory structure."
+      "description": "Walks through directory structure.",
+      "category": "file_read_calls"
     },
     "glob.glob": {
       "type": "file_read",
-      "description": "Finds files matching a pattern."
+      "description": "Finds files matching a pattern.",
+      "category": "file_read_calls"
     }
   },
   "transform_functions": {
     "base64.b64encode": {
       "type": "base64_encode",
-      "description": "Encodes data using Base64 encoding."
+      "description": "Encodes data using Base64 encoding.",
+      "category": "obfuscation_calls"
     },
     "base64.encodebytes": {
       "type": "base64_encode",
-      "description": "Encodes data using Base64 encoding."
+      "description": "Encodes data using Base64 encoding.",
+      "category": "obfuscation_calls"
     },
     "base64.b64decode": {
       "type": "base64_decode",
-      "description": "Decodes Base64 encoded data."
+      "description": "Decodes Base64 encoded data.",
+      "category": "obfuscation_calls"
     },
     "base64.decodebytes": {
       "type": "base64_decode",
-      "description": "Decodes Base64 encoded data."
+      "description": "Decodes Base64 encoded data.",
+      "category": "obfuscation_calls"
     },
     "zlib.compress": {
       "type": "zlib_compress",
-      "description": "Compresses data using ZLIB compression."
+      "description": "Compresses data using ZLIB compression.",
+      "category": "obfuscation_calls"
     },
     "zlib.decompress": {
       "type": "zlib_decompress",
-      "description": "Decompresses ZLIB compressed data."
+      "description": "Decompresses ZLIB compressed data.",
+      "category": "obfuscation_calls"
     },
     "gzip.compress": {
       "type": "gzip_compress",
-      "description": "Compresses data using GZIP compression."
+      "description": "Compresses data using GZIP compression.",
+      "category": "obfuscation_calls"
     },
     "gzip.decompress": {
       "type": "gzip_decompress",
-      "description": "Decompresses GZIP compressed data."
+      "description": "Decompresses GZIP compressed data.",
+      "category": "obfuscation_calls"
     },
     "binascii.hexlify": {
       "type": "hexlify",
-      "description": "Converts binary data into hexadecimal representation."
+      "description": "Converts binary data into hexadecimal representation.",
+      "category": "obfuscation_calls"
     },
     "binascii.unhexlify": {
       "type": "unhexlify",
-      "description": "Converts hexadecimal string back to binary data."
+      "description": "Converts hexadecimal string back to binary data.",
+      "category": "obfuscation_calls"
     },
     "json.dumps": {
       "type": "json_serialize",
-      "description": "Serializes Python object to JSON string."
+      "description": "Serializes Python object to JSON string.",
+      "category": "obfuscation_calls"
     },
     "json.loads": {
       "type": "json_deserialize",
-      "description": "Deserializes JSON string to Python object."
+      "description": "Deserializes JSON string to Python object.",
+      "category": "obfuscation_calls"
     },
     "pickle.dumps": {
       "type": "pickle_serialize",
-      "description": "Serializes Python object using pickle."
+      "description": "Serializes Python object using pickle.",
+      "category": "obfuscation_calls"
     },
     "pickle.loads": {
       "type": "pickle_deserialize",
-      "description": "Deserializes pickle data to Python object."
+      "description": "Deserializes pickle data to Python object.",
+      "category": "obfuscation_calls"
     },
     "str.encode": {
       "type": "encode",
-      "description": "Converts string to bytes using specified encoding."
+      "description": "Converts string to bytes using specified encoding.",
+      "category": "obfuscation_calls"
     },
     "bytes.decode": {
       "type": "decode",
-      "description": "Converts bytes to string using specified encoding."
+      "description": "Converts bytes to string using specified encoding.",
+      "category": "obfuscation_calls"
     },
     "codecs.decode": {
       "type": "decode",
-      "description": "Decodes data using codecs (e.g., ROT13)."
+      "description": "Decodes data using codecs (e.g., ROT13).",
+      "category": "obfuscation_calls"
     },
     "codecs.encode": {
       "type": "encode",
-      "description": "Encodes data using codecs (e.g., ROT13)."
+      "description": "Encodes data using codecs (e.g., ROT13).",
+      "category": "obfuscation_calls"
     },
     "hashlib.md5": {
       "type": "hash_md5",
-      "description": "Hashes data using MD5 algorithm."
+      "description": "Hashes data using MD5 algorithm.",
+      "category": "obfuscation_calls"
     },
     "hashlib.sha1": {
       "type": "hash_sha1",
-      "description": "Hashes data using SHA1 algorithm."
+      "description": "Hashes data using SHA1 algorithm.",
+      "category": "obfuscation_calls"
     },
     "hashlib.sha256": {
       "type": "hash_sha256",
-      "description": "Hashes data using SHA256 algorithm."
+      "description": "Hashes data using SHA256 algorithm.",
+      "category": "obfuscation_calls"
     },
     "hashlib.sha512": {
       "type": "hash_sha512",
-      "description": "Hashes data using SHA512 algorithm."
+      "description": "Hashes data using SHA512 algorithm.",
+      "category": "obfuscation_calls"
     },
     "hmac.new": {
       "type": "hmac",
-      "description": "Creates HMAC hash of data."
+      "description": "Creates HMAC hash of data.",
+      "category": "obfuscation_calls"
     }
   },
   "sink_functions": {

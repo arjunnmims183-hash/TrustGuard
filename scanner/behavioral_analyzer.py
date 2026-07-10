@@ -7,19 +7,21 @@ from scanner.io import import_json
 
 
 class BehaviorMappings:
-    FEATURES = [""
-                ""
-                "","network_receive_calls","process_calls","file_read_calls","file_write_calls",
-                "file_delete_calls","eval_exec_calls","obfuscation_calls","recon_calls","persistence_calls",
-                "credential_access_calls","ransomware_calls","anti_forensics_calls","data_exfiltration_calls",
-                "logic_bomb_patterns"]
-
     def __init__(self, json_path: Optional[str] = None):
         behavior_mappings = import_json._load_json("behavior_mappings.json")
         self.mappings = behavior_mappings.get('behavior_mappings', {})
+        self.FEATURES = behavior_mappings.get('feature_categories', [])
+
+        flow_mappings = import_json._load_json("behavior_mappings.json")
+        self.source_functions = flow_mappings.get("source_functions", {})
+        self.transform_functions = flow_mappings.get("transform_functions", {})
+        self.sink_functions = flow_mappings.get("sink_functions", {})
 
     def _create_feature_vector(self) -> Dict[str, Any]:
-        return {f: False for f in self.FEATURES} | {"data_flow_paths": []}
+        vector = {}
+        for f in self.FEATURES:
+            vector[f] = {"enabled": False,"calls": [],"lines": [],"details": []}
+        return vector
 
     def _extract_categories(self):
         categories = {}
@@ -36,12 +38,34 @@ class BehaviorMappings:
     def analyze_parser_result(self, parser_result: Dict[str, Any]) -> Dict[str, Any]:
         feature_vector = self._create_feature_vector()
         categories = self._extract_categories()
-        calls = parser_result.get('calls', [])
-        for call in set(calls):
-            category = self.get_category(call, categories)
-            if category is not None and category in feature_vector:
-                feature_vector[category] = True
+
+        for call in parser_result.get('calls_detailed', []):
+            name = call.get('name', '')
+            if not name:
+                continue
+
+            category = self.get_category(name, categories)
+            if category is None:
+                continue
+
+            # Update category entry
+            entry = feature_vector[category]
+            entry["enabled"] = True
+            # Keep unique call names (for summary)
+            if name not in entry["calls"]:
+                entry["calls"].append(name)
+            # Always append line and detail
+            entry["lines"].append(call.get('line', 0))
+            entry["details"].append({
+                "name": name,
+                "line": call.get('line', 0),
+                "args": call.get('args', []),
+                "keywords": call.get('keywords', [])
+            })
+
+
+        return feature_vector
 
 b =BehaviorMappings()
-parser_result = parser.Parser(r'C:\Users\Acer\Downloads\TrustGuard\test_samples\credential_theft.py').parse();
+parser_result = parser.Parser(r'C:\Users\vijen\Downloads\TrustGuard\test_samples\credential_theft.py').parse();
 b.analyze_parser_result(parser_result)

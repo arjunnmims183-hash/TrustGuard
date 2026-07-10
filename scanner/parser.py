@@ -345,8 +345,8 @@ class Parser:
         if isinstance(node, ast.Constant):
             return str(node.value)
         return getattr(node, 'id', getattr(node, 'attr', getattr(node, 'name', str(node)[:30])))
-#
-#
-# parser = Parser(r'C:\Users\Acer\Downloads\TrustGuard\test_samples\credential_theft.py')
+
+
+# parser = Parser(r'C:\Users\vijen\Downloads\TrustGuard\test_samples\credential_theft.py')
 # result = parser.parse()
 # print(result)

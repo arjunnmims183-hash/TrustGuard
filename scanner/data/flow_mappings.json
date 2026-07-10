@@ -1,0 +1,396 @@
+{
+  "source_functions": {
+    "os.getenv": {
+      "type": "env_var",
+      "description": "Reads information from environment variables."
+    },
+    "os.environ.get": {
+      "type": "env_var",
+      "description": "Reads information from environment variables."
+    },
+    "os.environ.__getitem__": {
+      "type": "env_var",
+      "description": "Reads information from environment variables."
+    },
+    "input": {
+      "type": "user_input",
+      "description": "Collects user supplied input from stdin."
+    },
+    "raw_input": {
+      "type": "user_input",
+      "description": "Collects user supplied input from stdin (Python 2)."
+    },
+    "open": {
+      "type": "file_read",
+      "description": "Opens and reads data from a local file."
+    },
+    "file.read": {
+      "type": "file_read",
+      "description": "Reads data from a file object."
+    },
+    "pd.read_csv": {
+      "type": "file_read",
+      "description": "Reads CSV data from a file."
+    },
+    "pd.read_excel": {
+      "type": "file_read",
+      "description": "Reads Excel data from a file."
+    },
+    "pd.read_json": {
+      "type": "file_read",
+      "description": "Reads JSON data from a file."
+    },
+    "json.load": {
+      "type": "file_read",
+      "description": "Loads JSON data from a file."
+    },
+    "json.loads": {
+      "type": "user_input",
+      "description": "Parses JSON data from a string."
+    },
+    "requests.get": {
+      "type": "network_recv",
+      "description": "Receives data from a remote HTTP source."
+    },
+    "requests.post": {
+      "type": "network_recv",
+      "description": "Receives response from an HTTP POST request."
+    },
+    "urllib.request.urlopen": {
+      "type": "network_recv",
+      "description": "Opens and reads data from a URL."
+    },
+    "urllib.request.urlretrieve": {
+      "type": "network_recv",
+      "description": "Retrieves data from a URL and saves to a file."
+    },
+    "socket.recv": {
+      "type": "network_recv",
+      "description": "Receives data from a network socket."
+    },
+    "socket.recvfrom": {
+      "type": "network_recv",
+      "description": "Receives data from a network socket."
+    },
+    "getpass.getpass": {
+      "type": "credential",
+      "description": "Collects password input from the user."
+    },
+    "getpass.getuser": {
+      "type": "credential",
+      "description": "Gets the current username."
+    },
+    "win32api.GetUserName": {
+      "type": "credential",
+      "description": "Gets the Windows username."
+    },
+    "os.listdir": {
+      "type": "file_read",
+      "description": "Lists files in a directory."
+    },
+    "os.walk": {
+      "type": "file_read",
+      "description": "Walks through directory structure."
+    },
+    "glob.glob": {
+      "type": "file_read",
+      "description": "Finds files matching a pattern."
+    }
+  },
+  "transform_functions": {
+    "base64.b64encode": {
+      "type": "base64_encode",
+      "description": "Encodes data using Base64 encoding."
+    },
+    "base64.encodebytes": {
+      "type": "base64_encode",
+      "description": "Encodes data using Base64 encoding."
+    },
+    "base64.b64decode": {
+      "type": "base64_decode",
+      "description": "Decodes Base64 encoded data."
+    },
+    "base64.decodebytes": {
+      "type": "base64_decode",
+      "description": "Decodes Base64 encoded data."
+    },
+    "zlib.compress": {
+      "type": "zlib_compress",
+      "description": "Compresses data using ZLIB compression."
+    },
+    "zlib.decompress": {
+      "type": "zlib_decompress",
+      "description": "Decompresses ZLIB compressed data."
+    },
+    "gzip.compress": {
+      "type": "gzip_compress",
+      "description": "Compresses data using GZIP compression."
+    },
+    "gzip.decompress": {
+      "type": "gzip_decompress",
+      "description": "Decompresses GZIP compressed data."
+    },
+    "binascii.hexlify": {
+      "type": "hexlify",
+      "description": "Converts binary data into hexadecimal representation."
+    },
+    "binascii.unhexlify": {
+      "type": "unhexlify",
+      "description": "Converts hexadecimal string back to binary data."
+    },
+    "json.dumps": {
+      "type": "json_serialize",
+      "description": "Serializes Python object to JSON string."
+    },
+    "json.loads": {
+      "type": "json_deserialize",
+      "description": "Deserializes JSON string to Python object."
+    },
+    "pickle.dumps": {
+      "type": "pickle_serialize",
+      "description": "Serializes Python object using pickle."
+    },
+    "pickle.loads": {
+      "type": "pickle_deserialize",
+      "description": "Deserializes pickle data to Python object."
+    },
+    "str.encode": {
+      "type": "encode",
+      "description": "Converts string to bytes using specified encoding."
+    },
+    "bytes.decode": {
+      "type": "decode",
+      "description": "Converts bytes to string using specified encoding."
+    },
+    "codecs.decode": {
+      "type": "decode",
+      "description": "Decodes data using codecs (e.g., ROT13)."
+    },
+    "codecs.encode": {
+      "type": "encode",
+      "description": "Encodes data using codecs (e.g., ROT13)."
+    },
+    "hashlib.md5": {
+      "type": "hash_md5",
+      "description": "Hashes data using MD5 algorithm."
+    },
+    "hashlib.sha1": {
+      "type": "hash_sha1",
+      "description": "Hashes data using SHA1 algorithm."
+    },
+    "hashlib.sha256": {
+      "type": "hash_sha256",
+      "description": "Hashes data using SHA256 algorithm."
+    },
+    "hashlib.sha512": {
+      "type": "hash_sha512",
+      "description": "Hashes data using SHA512 algorithm."
+    },
+    "hmac.new": {
+      "type": "hmac",
+      "description": "Creates HMAC hash of data."
+    }
+  },
+  "sink_functions": {
+    "requests.post": {
+      "type": "network_send",
+      "category": "network_calls",
+      "description": "Transmits data through an HTTP POST request."
+    },
+    "requests.put": {
+      "type": "network_send",
+      "category": "network_calls",
+      "description": "Uploads data using HTTP PUT."
+    },
+    "requests.patch": {
+      "type": "network_send",
+      "category": "network_calls",
+      "description": "Uploads data using HTTP PATCH."
+    },
+    "requests.delete": {
+      "type": "network_send",
+      "category": "network_calls",
+      "description": "Sends HTTP DELETE request."
+    },
+    "requests.request": {
+      "type": "network_send",
+      "category": "network_calls",
+      "description": "Sends data through a generic HTTP request."
+    },
+    "socket.send": {
+      "type": "network_send",
+      "category": "network_calls",
+      "description": "Sends data through a network socket."
+    },
+    "socket.sendall": {
+      "type": "network_send",
+      "category": "network_calls",
+      "description": "Sends all data through a network socket."
+    },
+    "urllib.request.urlopen": {
+      "type": "network_send",
+      "category": "network_calls",
+      "description": "Sends data through a URL request."
+    },
+    "urllib.request.urlretrieve": {
+      "type": "network_send",
+      "category": "network_calls",
+      "description": "Downloads data from a URL."
+    },
+    "websocket.send": {
+      "type": "network_send",
+      "category": "network_calls",
+      "description": "Sends data through a WebSocket."
+    },
+    "ftplib.FTP.storbinary": {
+      "type": "network_send",
+      "category": "network_calls",
+      "description": "Uploads data to an FTP server."
+    },
+    "ftplib.FTP.storlines": {
+      "type": "network_send",
+      "category": "network_calls",
+      "description": "Uploads lines to an FTP server."
+    },
+    "smtplib.SMTP.sendmail": {
+      "type": "network_send",
+      "category": "network_calls",
+      "description": "Transmits data via email."
+    },
+    "paramiko.SSHClient.exec_command": {
+      "type": "network_send",
+      "category": "network_calls",
+      "description": "Executes a remote SSH command."
+    },
+    "subprocess.run": {
+      "type": "process_exec",
+      "category": "process_calls",
+      "description": "Executes a subprocess."
+    },
+    "subprocess.Popen": {
+      "type": "process_exec",
+      "category": "process_calls",
+      "description": "Executes a subprocess with advanced options."
+    },
+    "subprocess.call": {
+      "type": "process_exec",
+      "category": "process_calls",
+      "description": "Executes a subprocess."
+    },
+    "subprocess.check_output": {
+      "type": "process_exec",
+      "category": "process_calls",
+      "description": "Executes a subprocess and captures output."
+    },
+    "os.system": {
+      "type": "process_exec",
+      "category": "process_calls",
+      "description": "Executes system command."
+    },
+    "os.popen": {
+      "type": "process_exec",
+      "category": "process_calls",
+      "description": "Opens a pipe to a system command."
+    },
+    "eval": {
+      "type": "eval_exec",
+      "category": "eval_exec_calls",
+      "description": "Evaluates Python expression."
+    },
+    "exec": {
+      "type": "eval_exec",
+      "category": "eval_exec_calls",
+      "description": "Executes Python code."
+    },
+    "__import__": {
+      "type": "eval_exec",
+      "category": "eval_exec_calls",
+      "description": "Dynamically imports a Python module."
+    },
+    "compile": {
+      "type": "eval_exec",
+      "category": "eval_exec_calls",
+      "description": "Compiles Python source code."
+    },
+    "open": {
+      "type": "file_write",
+      "category": "file_write_calls",
+      "description": "Opens and writes data to a file."
+    },
+    "file.write": {
+      "type": "file_write",
+      "category": "file_write_calls",
+      "description": "Writes data to a file object."
+    },
+    "file.writelines": {
+      "type": "file_write",
+      "category": "file_write_calls",
+      "description": "Writes lines to a file object."
+    },
+    "pd.DataFrame.to_csv": {
+      "type": "file_write",
+      "category": "file_write_calls",
+      "description": "Writes DataFrame to CSV file."
+    },
+    "pd.DataFrame.to_excel": {
+      "type": "file_write",
+      "category": "file_write_calls",
+      "description": "Writes DataFrame to Excel file."
+    },
+    "pd.DataFrame.to_json": {
+      "type": "file_write",
+      "category": "file_write_calls",
+      "description": "Writes DataFrame to JSON file."
+    },
+    "json.dump": {
+      "type": "file_write",
+      "category": "file_write_calls",
+      "description": "Writes JSON data to a file."
+    },
+    "pickle.dump": {
+      "type": "file_write",
+      "category": "file_write_calls",
+      "description": "Writes pickled data to a file."
+    },
+    "shutil.copy": {
+      "type": "file_write",
+      "category": "file_write_calls",
+      "description": "Copies a file."
+    },
+    "shutil.copy2": {
+      "type": "file_write",
+      "category": "file_write_calls",
+      "description": "Copies a file with metadata."
+    },
+    "shutil.move": {
+      "type": "file_write",
+      "category": "file_write_calls",
+      "description": "Moves a file."
+    },
+    "os.remove": {
+      "type": "file_delete",
+      "category": "file_delete_calls",
+      "description": "Deletes a file."
+    },
+    "os.unlink": {
+      "type": "file_delete",
+      "category": "file_delete_calls",
+      "description": "Deletes a file."
+    },
+    "os.rmdir": {
+      "type": "file_delete",
+      "category": "file_delete_calls",
+      "description": "Deletes an empty directory."
+    },
+    "shutil.rmtree": {
+      "type": "file_delete",
+      "category": "file_delete_calls",
+      "description": "Recursively deletes a directory."
+    },
+    "os.rename": {
+      "type": "file_delete",
+      "category": "file_delete_calls",
+      "description": "Renames a file (can be used for deletion)."
+    }
+  }
+}

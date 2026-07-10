@@ -384,5 +384,22 @@
         "PASSWORD = 'password'","SECRET = 'secret'","KEY = 'changeme'","TOKEN = 'test'"
       ]
     }
-  }
+  },
+  "feature_categories": [
+    "network_calls",
+    "network_receive_calls",
+    "process_calls",
+    "file_read_calls",
+    "file_write_calls",
+    "file_delete_calls",
+    "eval_exec_calls",
+    "obfuscation_calls",
+    "recon_calls",
+    "persistence_calls",
+    "credential_access_calls",
+    "ransomware_calls",
+    "anti_forensics_calls",
+    "data_exfiltration_calls",
+    "logic_bomb_patterns"
+  ]
 }

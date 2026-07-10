@@ -63,10 +63,6 @@ class Parser:
                 continue
         raise UnicodeDecodeError(f"Cannot decode: {self.filepath}")
 
-    # ==========================================
-    # EXTRACTORS
-    # ==========================================
-
     def _get_imports(self) -> List[str]:
         """Get all imported module names."""
         imports = set()
@@ -127,7 +123,7 @@ class Parser:
         return calls
 
     def _get_strings(self) -> List[Dict[str, Any]]:
-        """Get all string literals."""
+        """Get all string literals - UNIFORM FORMAT."""
         strings = []
         seen = set()
         for node in ast.walk(self.tree):
@@ -138,29 +134,34 @@ class Parser:
                     if key not in seen:
                         seen.add(key)
                         strings.append({
-                            "value": node.value,
                             "line": node.lineno,
+                            "value": node.value,
                             "length": len(node.value),
+                            "type": "string_literal",
                         })
         return strings
 
     def _get_assignments(self) -> List[Dict[str, Any]]:
-        """Get all variable assignments."""
+        """Get all variable assignments - UNIFORM FORMAT."""
         assignments = []
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Assign):
                 for target in node.targets:
                     if isinstance(target, ast.Name):
                         assignments.append({
-                            "variable": target.id,
                             "line": node.lineno,
+                            "value": target.id,
+                            "operation": "=",
+                            "type": "assignment",
                         })
             elif isinstance(node, ast.AugAssign):
                 if isinstance(node.target, ast.Name):
+                    op = ast.unparse(node.op).strip()
                     assignments.append({
-                        "variable": node.target.id,
                         "line": node.lineno,
-                        "operation": ast.unparse(node.op).strip(),
+                        "value": node.target.id,
+                        "operation": op,
+                        "type": "augmented_assignment",
                     })
         return assignments
 
@@ -170,23 +171,25 @@ class Parser:
         for node in ast.walk(self.tree):
             if isinstance(node, ast.FunctionDef):
                 functions.append({
-                    "name": node.name,
                     "line": node.lineno,
                     "end_line": node.end_lineno,
+                    "value": node.name,
                     "args": [arg.arg for arg in node.args.args],
                     "defaults": len(node.args.defaults),
                     "returns": self._get_name(node.returns) if node.returns else None,
                     "is_async": False,
+                    "type": "function",
                 })
             elif isinstance(node, ast.AsyncFunctionDef):
                 functions.append({
-                    "name": node.name,
                     "line": node.lineno,
                     "end_line": node.end_lineno,
+                    "value": node.name,
                     "args": [arg.arg for arg in node.args.args],
                     "defaults": len(node.args.defaults),
                     "returns": self._get_name(node.returns) if node.returns else None,
                     "is_async": True,
+                    "type": "async_function",
                 })
         return functions
 
@@ -196,61 +199,69 @@ class Parser:
         for node in ast.walk(self.tree):
             if isinstance(node, ast.ClassDef):
                 classes.append({
-                    "name": node.name,
                     "line": node.lineno,
                     "end_line": node.end_lineno,
+                    "value": node.name,
                     "bases": [self._get_name(base) for base in node.bases],
                     "methods": [n.name for n in node.body if isinstance(n, ast.FunctionDef)],
+                    "type": "class",
                 })
         return classes
 
-    def _get_comments(self) -> List[str]:
-        """Get all comments."""
+    def _get_comments(self) -> List[Dict[str, Any]]:
+        """Get all comments - UNIFORM FORMAT."""
         comments = []
-        for line in self.source.split('\n'):
-            line = line.strip()
-            if line.startswith('#'):
-                comments.append(line)
+        for line_num, line in enumerate(self.source.split('\n'), 1):
+            stripped = line.strip()
+            if stripped.startswith('#'):
+                comments.append({
+                    "line": line_num,
+                    "value": stripped,
+                    "type": "comment",
+                })
         return comments
 
     def _get_constants(self) -> List[Dict[str, Any]]:
-        """Get all constants (numbers, booleans, None)."""
+        """Get all constants (numbers, booleans, None) - UNIFORM FORMAT."""
         constants = []
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Constant):
                 if isinstance(node.value, (int, float, bool, type(None))):
                     constants.append({
+                        "line": node.lineno,
                         "value": node.value,
                         "type": type(node.value).__name__,
-                        "line": node.lineno,
                     })
         return constants
 
     def _get_decorators(self) -> List[Dict[str, Any]]:
-        """Get all decorators."""
+        """Get all decorators - UNIFORM FORMAT."""
         decorators = []
         for node in ast.walk(self.tree):
-            if hasattr(node, 'decorator_list'):
+            if hasattr(node, 'decorator_list') and node.decorator_list:
                 for decorator in node.decorator_list:
+                    decorator_value = self._get_name(decorator)
+                    target_value = node.name if hasattr(node, 'name') else "unknown"
                     decorators.append({
-                        "name": self._get_name(decorator),
                         "line": node.lineno,
-                        "target": node.name if hasattr(node, 'name') else "unknown",
+                        "value": decorator_value,
+                        "target": target_value,
+                        "type": "decorator",
                     })
         return decorators
 
     def _get_docstrings(self) -> List[Dict[str, Any]]:
-        """Get all docstrings."""
+        """Get all docstrings - UNIFORM FORMAT."""
         docstrings = []
         for node in ast.walk(self.tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module)):
                 docstring = ast.get_docstring(node)
                 if docstring:
                     docstrings.append({
-                        "value": docstring,
                         "line": node.lineno,
-                        "type": type(node).__name__.lower().replace('def', ''),
-                        "name": node.name if hasattr(node, 'name') else "module",
+                        "value": docstring,
+                        "target": node.name if hasattr(node, 'name') else "module",
+                        "type": "docstring",
                     })
         return docstrings
 
@@ -260,16 +271,16 @@ class Parser:
         for node in ast.walk(self.tree):
             if isinstance(node, ast.For):
                 loops.append({
-                    "type": "for",
                     "line": node.lineno,
                     "target": self._get_name(node.target),
                     "iter": self._get_name(node.iter),
+                    "type": "for_loop",
                 })
             elif isinstance(node, ast.While):
                 loops.append({
-                    "type": "while",
                     "line": node.lineno,
                     "condition": self._get_name(node.test),
+                    "type": "while_loop",
                 })
         return loops
 
@@ -279,10 +290,10 @@ class Parser:
         for node in ast.walk(self.tree):
             if isinstance(node, ast.If):
                 conditionals.append({
-                    "type": "if",
                     "line": node.lineno,
                     "condition": self._get_name(node.test),
                     "has_else": bool(node.orelse),
+                    "type": "if_conditional",
                 })
         return conditionals
 
@@ -296,17 +307,17 @@ class Parser:
                     "handlers": len(node.handlers),
                     "has_finally": bool(node.finalbody),
                     "has_else": bool(node.orelse),
+                    "type": "try_except",
                 })
         return try_blocks
 
-    def _get_variables(self) -> List[str]:
-        """Get all variable names."""
+    def _get_variables(self) -> List[Dict[str, Any]]:
+        """Get all variable names - UNIFORM FORMAT."""
         variables = set()
         for node in ast.walk(self.tree):
-            if isinstance(node, ast.Name):
-                if isinstance(node.ctx, ast.Store):
-                    variables.add(node.id)
-        return sorted(variables)
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                variables.add(node.id)
+        return [{"value": v, "type": "variable"} for v in sorted(variables)]
 
     def _get_name(self, node) -> str:
         """Get readable name from AST node."""

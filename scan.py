@@ -3,6 +3,7 @@ import sys
 from datetime import datetime
 import scanner.dangerous_imports
 import scanner.dangerous_api
+import scanner.secret_scanner
 
 import scanner.parser as parser
 from typing import Dict, Any, Optional, List, Tuple, Union
@@ -42,6 +43,9 @@ def run_scan(
 
         dangerousCallsAnalyzer = scanner.dangerous_imports.DangerousImports()
         result.append(run_stage("Dangerous Calls scan", dangerousCallsAnalyzer.analyze_parser_result, parser_result))
+
+        secretScanner = scanner.secret_scanner.SecretScanner()
+        result.append(run_stage("Secret scan", secretScanner.analyze_parser_result, parser_result))
 
         print(result)
     except RuntimeError as e:

@@ -334,7 +334,7 @@ class Parser:
             return str(node.value)
         return getattr(node, 'id', getattr(node, 'attr', getattr(node, 'name', str(node)[:30])))
 
-
-parser = Parser(r'C:\Users\Acer\Downloads\TrustGuard\test_samples\credential_theft.py')
-result = parser.parse()
-print(result)
+#
+# parser = Parser(r'C:\Users\Acer\Downloads\TrustGuard\test_samples\credential_theft.py')
+# result = parser.parse()
+# print(result)

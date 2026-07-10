@@ -6,7 +6,7 @@ import requests
 
 # Source
 token = os.getenv("AWS_SECRET_KEY")
-
+url = "redis://user:pass123@localhost:6379"
 # Alias chain
 a = token
 b = a

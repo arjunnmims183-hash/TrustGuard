@@ -17,9 +17,14 @@ class SecretScanner:
         compiled = []
         for p in self.patterns:
             try:
+                pattern = re.compile(p.get('pattern', ''))
+                if isinstance(pattern, str):
+                    compiled_pattern = re.compile(pattern, re.IGNORECASE | re.DOTALL)
+                else:
+                    compiled_pattern = pattern  # Already compiled
                 compiled.append({
                     'name': p.get('name', ''),
-                    'pattern': re.compile(p.get('pattern', '')),
+                    'pattern': pattern,
                     'severity': p.get('severity', 0),
                     'reason': p.get('reason', ''),
                     'category': p.get('category', ''),
@@ -137,7 +142,6 @@ class SecretScanner:
         return details
 
     def analyze_parser_result(self, parser_result: Dict[str, Any]) -> Dict[str, Any]:
-        #print(f"PARSED RESULT {parser_result}")
         details = {}
         details.update(self._collect(parser_result.get('strings', []), 'strings'))
         details.update(self._collect(parser_result.get('assignments', []), 'assignments'))
@@ -147,8 +151,11 @@ class SecretScanner:
         details.update(self._collect(parser_result.get('docstrings', []), 'docstrings'))
 
         variables = parser_result.get('variables', [])
-        if variables and isinstance(variables[0], dict):
-            details.update(self._collect(variables, 'variables', 'value'))
+        if variables:
+            if isinstance(variables[0], dict):
+                details.update(self._collect(variables, 'variables', 'value'))
+            else:
+                details.update(self._collect([{'value': v} for v in variables], 'variables'))
 
         scored = [{
             'source': d['source'],

@@ -4,6 +4,7 @@ from datetime import datetime
 import scanner.dangerous_imports
 import scanner.dangerous_api
 import scanner.secret_scanner
+import scanner.obfuscation_detector
 
 import scanner.parser as parser
 from typing import Dict, Any, Optional, List, Tuple, Union
@@ -46,6 +47,9 @@ def run_scan(
 
         secretScanner = scanner.secret_scanner.SecretScanner()
         result.append(run_stage("Secret scan", secretScanner.analyze_parser_result, parser_result))
+
+        obfuscationDetector = scanner.obfuscation_detector.ObfuscationDetector()
+        result.append(run_stage("Obfuscation scan", obfuscationDetector.analyze_parser_result, parser_result))
 
         print(result)
     except RuntimeError as e:

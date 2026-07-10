@@ -1,283 +1,165 @@
-"""
-obfuscation_detector.py
------------------------
-Detects code obfuscation techniques commonly used to hide malicious behavior.
-
-Techniques covered:
-    1. chr() chains         - building strings char-by-char to avoid string literals
-    2. XOR decode loops     - XOR-based payload decryption
-    3. Base64 decode chains - encoded strings decoded and executed
-    4. String concatenation to build function/module names
-    5. __import__ used dynamically
-    6. exec(compile(...))   - runtime code compilation and execution
-    7. High character entropy in non-comment lines
-    8. Deeply nested encode/decode calls
-    9. Hex/octal escape sequences used to hide strings
-    10. Lambda abuse for obfuscation
-"""
-
-import ast
 import re
 import math
-from typing import List, Dict, Any, Set, Tuple
+from typing import Dict, List, Any, Optional
+from scanner.io import import_json
 
-# ==========================================
-# DATA IMPORTS
-# ==========================================
+class ObfuscationDetector:
+    def __init__(self):
+        data = import_json._load_json("obfuscation_patterns.json")
+        self.entropy_config = data.get('entropy_config', {})
+        self.patterns = data.get('obfuscation_patterns', [])
+        self.compiled = self._compile_patterns()
 
-from scanner.data.obfuscation_patterns import (
-    LINE_RULES,
-    ENTROPY_THRESHOLD,
-    MIN_ENTROPY_LENGTH,
-)
+    def _compile_patterns(self):
+        compiled = []
+        for p in self.patterns:
+            try:
+                pattern = p.get('pattern', '')
+                if isinstance(pattern, str):
+                    compiled_pattern = re.compile(pattern, re.IGNORECASE | re.DOTALL)
+                else:
+                    compiled_pattern = pattern  # Already compiled
+                compiled.append({
+                    'name': p.get('name', ''),
+                    'pattern': compiled_pattern,
+                    'severity': p.get('severity', 0),
+                    'reason': p.get('reason', ''),
+                    'category': p.get('category', ''),
+                    'cwe': p.get('cwe', ''),
+                    'false_positive_risk': p.get('false_positive_risk', ''),
+                    'context': p.get('context', '')
+                })
+            except re.error:
+                continue
+        return compiled
 
+    def _truncate(self, value: str, max_len: int = 50) -> str:
+        """Truncate string for display."""
+        return value if len(value) <= max_len else value[:max_len] + "..."
 
-# ==========================================
-# HELPER FUNCTIONS
-# ==========================================
+    def _shannon_entropy(self, s: str) -> float:
+        """Calculate Shannon entropy."""
+        if not s:
+            return 0.0
+        freq = [s.count(ch) for ch in set(s)]
+        total = len(s)
+        return -sum((c / total) * math.log2(c / total) for c in freq)
 
-def _shannon_entropy(s: str) -> float:
-    """
-    Compute the Shannon entropy (bits per character) of a string.
-    """
-    if not s:
-        return 0.0
-    
-    freq = {}
-    for ch in s:
-        freq[ch] = freq.get(ch, 0) + 1
-    
-    total = len(s)
-    return -sum((c / total) * math.log2(c / total) for c in freq.values())
+    def _get_match(self, value: str) -> Optional[Dict[str, Any]]:
+        if not isinstance(value, str) or not value:
+            return None
 
+        for p in self.compiled:
+            if p['pattern'].search(value):
+                return p
 
-def _format_finding(
-    category: str,
-    pattern: str,
-    lineno: int,
-    severity: str,
-    reason: str,
-    snippet: str = ""
-) -> Dict[str, Any]:
-    """
-    Create a standardized finding dictionary.
-    """
-    return {
-        "category": category,
-        "pattern": pattern,
-        "lineno": lineno,
-        "severity": severity,
-        "reason": reason,
-        "snippet": snippet[:120] if snippet else "",
-    }
+        min_len = self.entropy_config.get('min_entropy_length', 80)
+        if len(value) >= min_len:
+            entropy = self._shannon_entropy(value)
+            threshold = self.entropy_config.get('entropy_threshold', 5.0)
+            if entropy >= threshold and self._is_mostly_secret_chars(value):
+                return {
+                    'name': 'High-entropy string',
+                    'severity': 50,
+                    'reason': f"High entropy ({entropy:.2f} bits/char) in string – likely encoded payload",
+                    'category': 'High-Entropy Embedded String',
+                    'cwe': 'CWE-20',
+                    'false_positive_risk': 'MEDIUM',
+                    'context': 'May be legitimate encoding'
+                }
 
+        return None
 
-# ==========================================
-# ENTROPY-BASED SCANNING
-# ==========================================
+    def _collect(self, items: List[Dict], source: str, value_key: str = 'value', line_key: str = 'line') -> Dict:
+        details = {}
+        for item in items:
+            value = item.get(value_key, '')
+            if not value:
+                continue
 
-def _scan_entropy(source: str) -> List[Dict[str, Any]]:
-    """
-    Flag source lines (excluding comments and imports) that have
-    very high Shannon entropy — a sign of embedded encoded content.
-    """
-    findings = []
-    
-    for lineno, line in enumerate(source.splitlines(), start=1):
-        stripped = line.strip()
-        
-        # Skip comments, imports, blank lines
-        if (not stripped
-                or stripped.startswith("#")
-                or stripped.startswith("import ")
-                or stripped.startswith("from ")):
-            continue
-        
-        # Look for long string literals within the line
-        string_matches = re.findall(
-            r'["\']([A-Za-z0-9+/=_\-]{' + str(MIN_ENTROPY_LENGTH) + r',})["\']',
-            line
-        )
-        
-        for s in string_matches:
-            entropy = _shannon_entropy(s)
-            if entropy >= ENTROPY_THRESHOLD:
-                findings.append(_format_finding(
-                    category="High-Entropy Embedded String",
-                    pattern="High-entropy string in code line",
-                    lineno=lineno,
-                    severity="MEDIUM",
-                    reason=(
-                        f"String with Shannon entropy {entropy:.2f} bits/char found in source line "
-                        f"(threshold: {ENTROPY_THRESHOLD}) — likely an encoded payload, key, or obfuscated data."
-                    ),
-                    snippet=stripped,
-                ))
-    
-    return findings
+            match = self._get_match(value)
+            if match:
+                line = item.get(line_key, 0)
+                key = f"{source}_{line}_{value[:20]}"
+                details[key] = {
+                    'source': source,
+                    'value': self._truncate(value),
+                    'line': line,
+                    **match
+                }
+        return details
 
+    def _collect_from_calls(self, calls_detailed: List[Dict]) -> Dict:
+        details = {}
+        for call in calls_detailed:
+            line = call.get('line', 0)
 
-# ==========================================
-# AST-BASED RULES
-# ==========================================
+            name = call.get('name', '')
+            if name:
+                match = self._get_match(name)
+                if match:
+                    key = f"calls_{line}_{name[:20]}"
+                    details[key] = {
+                        'source': 'calls',
+                        'value': self._truncate(name),
+                        'line': line,
+                        'snippet': self._truncate(name, 80),
+                        **match
+                    }
 
-def _count_chr_calls(node: ast.AST) -> int:
-    """
-    Count the number of chr() calls in a BinOp addition chain.
-    """
-    if isinstance(node, ast.Call):
-        if isinstance(node.func, ast.Name) and node.func.id == "chr":
-            return 1
-        return 0
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        return _count_chr_calls(node.left) + _count_chr_calls(node.right)
-    return 0
+            for idx, arg in enumerate(call.get('args', [])):
+                if isinstance(arg, str):
+                    match = self._get_match(arg)
+                    if match:
+                        key = f"calls_args_{line}_{arg[:20]}_{idx}"
+                        details[key] = {
+                            'source': 'calls_args',
+                            'value': self._truncate(arg),
+                            'line': line,
+                            'snippet': self._truncate(arg, 80),
+                            **match
+                        }
+        return details
 
+    def analyze_parser_result(self, parser_result: Dict[str, Any]) -> Dict[str, Any]:
+        details = {}
+        details.update(self._collect(parser_result.get('strings', []), 'strings', 'value', 'line'))
+        details.update(self._collect(parser_result.get('assignments', []), 'assignments', 'value', 'line'))
+        details.update(self._collect(parser_result.get('comments', []), 'comments', 'value', 'line'))
+        details.update(self._collect(parser_result.get('constants', []), 'constants', 'value', 'line'))
+        details.update(self._collect(parser_result.get('decorators', []), 'decorators', 'value', 'line'))
+        details.update(self._collect(parser_result.get('docstrings', []), 'docstrings', 'value', 'line'))
 
-def _scan_ast_chr_chains(tree: ast.AST, source_lines: List[str]) -> List[Dict[str, Any]]:
-    """
-    Detect chr() chains in AST.
-    """
-    findings = []
-    
-    for node in ast.walk(tree):
-        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-            chr_count = _count_chr_calls(node)
-            if chr_count >= 3:
-                lineno = getattr(node, "lineno", 0)
-                snippet = source_lines[lineno - 1].strip() if lineno <= len(source_lines) else ""
-                
-                findings.append(_format_finding(
-                    category="chr() Chain Obfuscation",
-                    pattern=f"chr() chain ({chr_count} calls)",
-                    lineno=lineno,
-                    severity="HIGH",
-                    reason=(
-                        f"Chain of {chr_count} chr() calls detected in AST — "
-                        "string is being constructed character-by-character to hide its content."
-                    ),
-                    snippet=snippet,
-                ))
-    
-    return findings
+        details.update(self._collect(parser_result.get('imports_detailed', []), 'imports', 'module', 'line'))
 
+        details.update(self._collect_from_calls(parser_result.get('calls_detailed', [])))
 
-def _scan_ast_dynamic_imports(tree: ast.AST, source_lines: List[str]) -> List[Dict[str, Any]]:
-    """
-    Detect __import__() with dynamic (non-constant) arguments.
-    """
-    findings = []
-    
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            fname = node.func.id if isinstance(node.func, ast.Name) else ""
-            
-            if fname == "__import__" and node.args:
-                if not isinstance(node.args[0], ast.Constant):
-                    lineno = getattr(node, "lineno", 0)
-                    snippet = source_lines[lineno - 1].strip() if lineno <= len(source_lines) else ""
-                    
-                    findings.append(_format_finding(
-                        category="Dynamic Import Obfuscation",
-                        pattern="__import__() with dynamic argument (AST)",
-                        lineno=lineno,
-                        severity="HIGH",
-                        reason=(
-                            "__import__() called with a computed argument — "
-                            "the module being imported is determined at runtime."
-                        ),
-                        snippet=snippet,
-                    ))
-    
-    return findings
+        variables = parser_result.get('variables', [])
+        if variables:
+            if isinstance(variables[0], dict):
+                details.update(self._collect(variables, 'variables', 'value'))
+            else:
+                details.update(self._collect([{'value': v} for v in variables], 'variables'))
 
+        scored = [{
+            'source': d['source'],
+            'name': d['name'],
+            'severity': d['severity'],
+            'category': d['category'],
+            'reason': d['reason'],
+            'cwe': d['cwe'],
+            'false_positive_risk': d['false_positive_risk'],
+            'context': d['context'],
+            'value': d['value'],
+            'line': d['line'],
+            'snippet': d.get('snippet', '')
+        } for d in details.values()]
 
-def _scan_ast_rules(tree: ast.AST, source_lines: List[str]) -> List[Dict[str, Any]]:
-    """
-    Run all AST-level obfuscation rules.
-    """
-    findings = []
-    
-    findings.extend(_scan_ast_chr_chains(tree, source_lines))
-    findings.extend(_scan_ast_dynamic_imports(tree, source_lines))
-    
-    return findings
+        scored.sort(key=lambda x: x['severity'], reverse=True)
 
-
-# ==========================================
-# LINE-BASED SCANNING
-# ==========================================
-
-def _scan_line_rules(source_lines: List[str]) -> List[Dict[str, Any]]:
-    """
-    Scan each line with all regex patterns.
-    """
-    findings = []
-    
-    for lineno, line in enumerate(source_lines, start=1):
-        for name, pattern, severity, category, reason in LINE_RULES:
-            if pattern.search(line):
-                findings.append(_format_finding(
-                    category=category,
-                    pattern=name,
-                    lineno=lineno,
-                    severity=severity,
-                    reason=reason,
-                    snippet=line.strip(),
-                ))
-    
-    return findings
-
-
-# ==========================================
-# MAIN DETECTION FUNCTION
-# ==========================================
-
-def detect_obfuscation(tree: ast.AST, source: str) -> List[Dict[str, Any]]:
-    """
-    Run all obfuscation detection rules.
-    Returns findings sorted by line number.
-    """
-    source_lines = source.splitlines()
-    
-    # Collect findings from all sources
-    findings = []
-    findings.extend(_scan_line_rules(source_lines))
-    findings.extend(_scan_ast_rules(tree, source_lines))
-    findings.extend(_scan_entropy(source))
-    
-    # Deduplicate by (lineno, pattern)
-    seen = set()
-    unique = []
-    for f in findings:
-        key = (f["lineno"], f["pattern"])
-        if key not in seen:
-            seen.add(key)
-            unique.append(f)
-    
-    # Sort by line number
-    unique.sort(key=lambda f: f["lineno"])
-    
-    return unique
-
-
-# ==========================================
-# LEGACY SUPPORT
-# ==========================================
-
-def detect_obfuscation_legacy(tree: ast.AST, source: str) -> List[Dict[str, Any]]:
-    """
-    Legacy wrapper for backward compatibility.
-    """
-    return detect_obfuscation(tree, source)
-
-
-# ==========================================
-# EXPORTS
-# ==========================================
-
-__all__ = [
-    "detect_obfuscation",
-    "detect_obfuscation_legacy",
-    "LINE_RULES",
-]
+        return {
+            "obfuscation_analysis": {
+                "total_findings": len(scored),
+                "scored_findings": scored
+            }
+        }

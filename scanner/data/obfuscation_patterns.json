@@ -1,0 +1,174 @@
+{
+  "obfuscation_patterns": [
+    {
+      "name": "chr() chain — string building",
+      "pattern": "(chr\\s*\\(\\s*\\d+\\s*\\)\\s*\\+\\s*){2,}",
+      "severity": 85,
+      "category": "chr() Chain Obfuscation",
+      "reason": "Multiple chr() calls concatenated — classic technique to build a string without using string literals, hiding the actual content from static analysis.",
+      "cwe": "CWE-20",
+      "false_positive_risk": "MEDIUM",
+      "context": "Sometimes used legitimately in code generation or serialization"
+    },
+    {
+      "name": "XOR decode loop",
+      "pattern": "\\^\\s*(0x[0-9a-fA-F]+|\\d+)",
+      "severity": 80,
+      "category": "XOR Obfuscation",
+      "reason": "XOR operation with a constant — common in XOR-based payload decryption routines.",
+      "cwe": "CWE-200",
+      "false_positive_risk": "LOW",
+      "context": "Rarely used legitimately; often indicates data obfuscation"
+    },
+    {
+      "name": "Base64 decode → exec/eval",
+      "pattern": "(eval|exec)\\s*\\([^)]*base64\\.(b64decode|decodebytes|decode)",
+      "severity": 95,
+      "category": "Encoded Payload Execution",
+      "reason": "Base64-decoded content passed directly to eval()/exec() — classic encoded payload execution pattern.",
+      "cwe": "CWE-94",
+      "false_positive_risk": "LOW",
+      "context": "Almost never legitimate; indicates malicious payload execution"
+    },
+    {
+      "name": "Base64 decode → compile",
+      "pattern": "compile\\s*\\([^)]*base64\\.(b64decode|decodebytes)",
+      "severity": 95,
+      "category": "Encoded Payload Execution",
+      "reason": "Base64-decoded content passed to compile() — obfuscated code compiled and likely executed.",
+      "cwe": "CWE-94",
+      "false_positive_risk": "LOW",
+      "context": "Rarely legitimate; indicates runtime code generation from encoded data"
+    },
+    {
+      "name": "zlib decompress + base64 decode chain",
+      "pattern": "zlib\\.decompress\\s*\\([^)]*base64\\.b64decode|base64\\.b64decode[^)]*zlib\\.decompress",
+      "severity": 92,
+      "category": "Packed Payload",
+      "reason": "zlib decompression chained with base64 decoding — signature of a packed/compressed payload being unpacked at runtime.",
+      "cwe": "CWE-94",
+      "false_positive_risk": "LOW",
+      "context": "Sometimes used in legitimate compression, but suspicious with eval/exec"
+    },
+    {
+      "name": "XOR decode with chr() and join",
+      "pattern": "join\\s*\\(\\s*(?:chr\\s*\\([^)]*\\^[^)]*\\)\\s+for\\s+\\w+\\s+in\\s+\\w+)",
+      "severity": 85,
+      "category": "XOR Obfuscation",
+      "reason": "XOR-based string decoding using chr(c ^ key) in a generator expression — common technique to decode hidden strings at runtime.",
+      "cwe": "CWE-200",
+      "false_positive_risk": "LOW",
+      "context": "Rarely used legitimately; often indicates data obfuscation or payload decryption"
+    },
+    {
+      "name": "eval/exec with decode chain",
+      "pattern": "(eval|exec)\\s*\\([^)]*\\.(decode|decompress)\\s*\\(",
+      "severity": 95,
+      "category": "Encoded Payload Execution",
+      "reason": "eval()/exec() called on decoded/decompressed content — encoded payload being unpacked and executed.",
+      "cwe": "CWE-94",
+      "false_positive_risk": "LOW",
+      "context": "Almost never legitimate; indicates malicious payload execution"
+    },
+    {
+      "name": "Dynamic __import__() call",
+      "pattern": "__import__\\s*\\(\\s*(?![\"'][a-zA-Z_][a-zA-Z0-9_.]*[\"'])",
+      "severity": 85,
+      "category": "Dynamic Import Obfuscation",
+      "reason": "__import__() called with a non-literal argument — module name is determined at runtime to evade static import analysis.",
+      "cwe": "CWE-706",
+      "false_positive_risk": "MEDIUM",
+      "context": "Sometimes used in legitimate plugin systems or dynamic loading"
+    },
+    {
+      "name": "String concat to build module name",
+      "pattern": "__import__\\s*\\(\\s*[\"'][a-z]+[\"']\\s*\\+\\s*[\"'][a-z]+[\"']",
+      "severity": 88,
+      "category": "Import Name Obfuscation",
+      "reason": "Module name built by string concatenation before __import__ — hides which module is being imported.",
+      "cwe": "CWE-706",
+      "false_positive_risk": "LOW",
+      "context": "Rarely legitimate; often indicates evasion of static analysis"
+    },
+    {
+      "name": "exec(compile()) — runtime code compilation",
+      "pattern": "exec\\s*\\(\\s*compile\\s*\\(",
+      "severity": 98,
+      "category": "Runtime Code Compilation",
+      "reason": "exec(compile(...)) — code is compiled and executed at runtime, bypassing static analysis of what runs.",
+      "cwe": "CWE-94",
+      "false_positive_risk": "LOW",
+      "context": "Almost never legitimate; indicates advanced evasion techniques"
+    },
+    {
+      "name": "Hex escape sequences in string",
+      "pattern": "(\\\\x[0-9a-fA-F]{2}){4,}",
+      "severity": 60,
+      "category": "Hex Escape Obfuscation",
+      "reason": "Four or more consecutive hex escape sequences — commonly used to encode hidden strings or shellcode.",
+      "cwe": "CWE-20",
+      "false_positive_risk": "HIGH",
+      "context": "Often used in legitimate code for special characters or Unicode"
+    },
+    {
+      "name": "Octal escape sequences in string",
+      "pattern": "(\\\\[0-7]{3}){3,}",
+      "severity": 60,
+      "category": "Octal Escape Obfuscation",
+      "reason": "Multiple octal escape sequences — alternate encoding method to hide string content from static inspection.",
+      "cwe": "CWE-20",
+      "false_positive_risk": "HIGH",
+      "context": "Often used in legitimate code for character encoding"
+    },
+    {
+      "name": "Unicode escape sequences in string",
+      "pattern": "(\\\\u[0-9a-fA-F]{4}){3,}",
+      "severity": 55,
+      "category": "Unicode Escape Obfuscation",
+      "reason": "Multiple Unicode escape sequences — can be used to hide keywords or strings from pattern matching.",
+      "cwe": "CWE-20",
+      "false_positive_risk": "VERY_HIGH",
+      "context": "Very common in legitimate internationalization and string encoding"
+    },
+    {
+      "name": "getattr() used to call function dynamically",
+      "pattern": "getattr\\s*\\(\\s*\\w+\\s*,\\s*(?![\"'][a-zA-Z_][a-zA-Z0-9_]*[\"'])[^)]+\\)",
+      "severity": 70,
+      "category": "Dynamic Attribute Resolution",
+      "reason": "getattr() called with a non-literal attribute name — function to call is determined at runtime, hiding behavior.",
+      "cwe": "CWE-15",
+      "false_positive_risk": "HIGH",
+      "context": "Common in legitimate dynamic dispatch patterns in frameworks"
+    },
+    {
+      "name": "Lambda chain obfuscation",
+      "pattern": "(lambda\\s+\\w+\\s*:\\s*){3,}",
+      "severity": 50,
+      "category": "Lambda Chain Obfuscation",
+      "reason": "Deeply nested lambda expressions — can be used to obfuscate logic and evade simple pattern matching.",
+      "cwe": "CWE-15",
+      "false_positive_risk": "HIGH",
+      "context": "Sometimes used in functional programming, but excessive nesting is suspicious"
+    },
+    {
+      "name": "codecs.decode / rot13 obfuscation",
+      "pattern": "codecs\\.(decode|encode)\\s*\\([^)]*[\"']rot.?13[\"']|[\"']rot.?13[\"'][^)]*codecs\\.(decode|encode)",
+      "severity": 82,
+      "category": "Encoding Obfuscation",
+      "reason": "codecs.decode with rot13 — used to hide string literals like function names or URLs from static inspection.",
+      "cwe": "CWE-20",
+      "false_positive_risk": "LOW",
+      "context": "Rarely used legitimately; often indicates evasion of pattern matching"
+    }
+  ],
+  "entropy_config": {
+    "entropy_threshold": 5.0,
+    "min_entropy_length": 80,
+    "severity_thresholds": {
+      "critical": 90,
+      "high": 70,
+      "medium": 40,
+      "low": 20
+    }
+  }
+}

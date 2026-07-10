@@ -142,28 +142,40 @@ class Parser:
         return strings
 
     def _get_assignments(self) -> List[Dict[str, Any]]:
-        """Get all variable assignments - UNIFORM FORMAT."""
+        """Get all variable assignments with their values."""
         assignments = []
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Assign):
                 for target in node.targets:
                     if isinstance(target, ast.Name):
+                        rhs = self._get_value_repr(node.value)
                         assignments.append({
                             "line": node.lineno,
-                            "value": target.id,
+                            "variable": target.id,
+                            "value": rhs,
                             "operation": "=",
                             "type": "assignment",
                         })
             elif isinstance(node, ast.AugAssign):
                 if isinstance(node.target, ast.Name):
                     op = ast.unparse(node.op).strip()
+                    rhs = self._get_value_repr(node.value)
                     assignments.append({
                         "line": node.lineno,
-                        "value": node.target.id,
+                        "variable": node.target.id,
+                        "value": rhs,
                         "operation": op,
                         "type": "augmented_assignment",
                     })
         return assignments
+
+    def _get_value_repr(self, node) -> str:
+        try:
+            return ast.unparse(node)  # Python 3.9+ gives exact source text
+        except Exception:
+            if isinstance(node, ast.Constant):
+                return repr(node.value)
+            return str(node)[:50]
 
     def _get_functions(self) -> List[Dict[str, Any]]:
         """Get all function definitions."""
@@ -333,7 +345,7 @@ class Parser:
         if isinstance(node, ast.Constant):
             return str(node.value)
         return getattr(node, 'id', getattr(node, 'attr', getattr(node, 'name', str(node)[:30])))
-
+#
 #
 # parser = Parser(r'C:\Users\Acer\Downloads\TrustGuard\test_samples\credential_theft.py')
 # result = parser.parse()

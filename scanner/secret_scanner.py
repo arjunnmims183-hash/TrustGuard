@@ -7,12 +7,9 @@ from scanner.io import import_json
 class SecretScanner:
     def __init__(self):
         """Initialize with secret patterns JSON."""
-        self.entropy_config = {
-            "secret_charset": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=_-",
-            "entropy_threshold": 4.5,
-            "min_secret_length": 20
-        }
-        self.patterns = import_json._load_json("secret_pattern.json").get('secret_patterns', {})
+        vulnerable_pattern_config = import_json._load_json("secret_pattern.json")
+        self.entropy_config = vulnerable_pattern_config.get('entropy_config', {})
+        self.patterns = vulnerable_pattern_config.get('secret_patterns', {})
         self.compiled = self._compile_patterns()
 
     def _compile_patterns(self):
@@ -168,5 +165,5 @@ class SecretScanner:
 
         scored.sort(key=lambda x: x['severity'], reverse=True)
 
-        return {"secret_analysis": {"total_findings": len(scored), "scored_findings": scored}}
+        return {"vulnerability_pattern_analysis": {"total_findings": len(scored), "scored_findings": scored}}
 

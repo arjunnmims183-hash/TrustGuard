@@ -359,6 +359,302 @@
       "cwe": "CWE-15",
       "is_always_malicious": false,
       "context": "Every Python application uses logging"
+    },
+    "colourama": {
+      "severity": 95,
+      "category": "Malicious Package",
+      "reason": "Typosquat of 'colorama' — known to exfiltrate data on install.",
+      "cwe": "CWE-506",
+      "is_always_malicious": true,
+      "context": "Known malicious typosquat - never legitimate"
+    },
+    "python-mongo": {
+      "severity": 95,
+      "category": "Malicious Package",
+      "reason": "Malicious package impersonating MongoDB drivers.",
+      "cwe": "CWE-506",
+      "is_always_malicious": true,
+      "context": "Known malicious impersonation - never legitimate"
+    },
+    "jeIlyfish": {
+      "severity": 95,
+      "category": "Malicious Package",
+      "reason": "Typosquat of 'jellyfish' — contained credential-stealing code.",
+      "cwe": "CWE-506",
+      "is_always_malicious": true,
+      "context": "Known malicious typosquat - never legitimate"
+    },
+    "bs4-requests": {
+      "severity": 95,
+      "category": "Malicious Package",
+      "reason": "Unofficial combo package — contained a backdoor.",
+      "cwe": "CWE-506",
+      "is_always_malicious": true,
+      "context": "Known malicious package - never legitimate"
+    },
+    "request": {
+      "severity": 95,
+      "category": "Malicious Package",
+      "reason": "Typosquat of 'requests' — popular supply-chain attack target.",
+      "cwe": "CWE-506",
+      "is_always_malicious": true,
+      "context": "Known malicious typosquat - never legitimate"
+    },
+    "urlib": {
+      "severity": 95,
+      "category": "Malicious Package",
+      "reason": "Typosquat of 'urllib' — impersonates a standard library.",
+      "cwe": "CWE-506",
+      "is_always_malicious": true,
+      "context": "Known malicious typosquat - never legitimate"
+    },
+    "urllib2": {
+      "severity": 90,
+      "category": "Malicious Package",
+      "reason": "Impersonates Python 2's urllib2, not a valid Python 3 package.",
+      "cwe": "CWE-506",
+      "is_always_malicious": true,
+      "context": "Impersonates obsolete stdlib - never legitimate"
+    },
+    "urllib3-patch": {
+      "severity": 95,
+      "category": "Malicious Package",
+      "reason": "Unofficial patch package — documented to contain malicious code.",
+      "cwe": "CWE-506",
+      "is_always_malicious": true,
+      "context": "Known malicious package - never legitimate"
+    },
+    "cryptocheck": {
+      "severity": 90,
+      "category": "Malicious Package",
+      "reason": "Cryptomining package distributed under a misleading name.",
+      "cwe": "CWE-506",
+      "is_always_malicious": true,
+      "context": "Known cryptominer - never legitimate"
+    },
+    "setup-tools": {
+      "severity": 95,
+      "category": "Malicious Package",
+      "reason": "Typosquat of 'setuptools' with hyphen — known malicious.",
+      "cwe": "CWE-506",
+      "is_always_malicious": true,
+      "context": "Known malicious typosquat - never legitimate"
+    },
+    "python-dateutils": {
+      "severity": 95,
+      "category": "Malicious Package",
+      "reason": "Typosquat of 'python-dateutil' — known exfiltration payload.",
+      "cwe": "CWE-506",
+      "is_always_malicious": true,
+      "context": "Known malicious typosquat - never legitimate"
+    },
+    "loguru-config": {
+      "severity": 90,
+      "category": "Malicious Package",
+      "reason": "Unofficial extension of loguru — contained a backdoor.",
+      "cwe": "CWE-506",
+      "is_always_malicious": true,
+      "context": "Known malicious package - never legitimate"
+    },
+    "discordapp": {
+      "severity": 90,
+      "category": "Malicious Package",
+      "reason": "Unofficial Discord package — credential harvester.",
+      "cwe": "CWE-506",
+      "is_always_malicious": true,
+      "context": "Known credential harvester - never legitimate"
+    },
+    "importantpackage": {
+      "severity": 90,
+      "category": "Malicious Package",
+      "reason": "Known test/attack package used in supply-chain demonstrations.",
+      "cwe": "CWE-506",
+      "is_always_malicious": true,
+      "context": "Known attack package - never legitimate"
+    },
+    "noblesse": {
+      "severity": 95,
+      "category": "Malicious Package",
+      "reason": "Known malware package targeting Discord tokens.",
+      "cwe": "CWE-506",
+      "is_always_malicious": true,
+      "context": "Known malware - never legitimate"
+    },
+    "pyquest": {
+      "severity": 90,
+      "category": "Malicious Package",
+      "reason": "Known credential-stealer masquerading as a utility.",
+      "cwe": "CWE-506",
+      "is_always_malicious": true,
+      "context": "Known credential stealer - never legitimate"
+    },
+    "py-bcrypt": {
+      "severity": 95,
+      "category": "Malicious Package",
+      "reason": "Impersonates 'bcrypt' — documented malicious payload.",
+      "cwe": "CWE-506",
+      "is_always_malicious": true,
+      "context": "Known malicious impersonation - never legitimate"
+    },
+    "pyinstaller": {
+      "severity": 50,
+      "category": "Packing",
+      "reason": "Packages Python apps into standalone executables — can be used to distribute malware.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Legitimate packaging tool but used by malware"
+    },
+    "py2exe": {
+      "severity": 50,
+      "category": "Packing",
+      "reason": "Same as pyinstaller — executable packing for Windows.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Legitimate packaging tool but used by malware"
+    },
+    "nuitka": {
+      "severity": 50,
+      "category": "Packing",
+      "reason": "Python compiler that can obscure source code.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Legitimate compiler but can obscure code"
+    },
+    "obfuscator": {
+      "severity": 85,
+      "category": "Obfuscation",
+      "reason": "Explicit obfuscation tool — no legitimate forensic justification.",
+      "cwe": "CWE-20",
+      "is_always_malicious": false,
+      "context": "Rarely legitimate - used to hide malicious code"
+    },
+    "pynput": {
+      "severity": 90,
+      "category": "Input Capture",
+      "reason": "Captures keyboard and mouse input — primary keylogging library.",
+      "cwe": "CWE-522",
+      "is_always_malicious": false,
+      "context": "Legitimate accessibility tool but used for keylogging"
+    },
+    "keyboard": {
+      "severity": 90,
+      "category": "Input Capture",
+      "reason": "Hooks into keyboard events globally — keylogger vector.",
+      "cwe": "CWE-522",
+      "is_always_malicious": false,
+      "context": "Legitimate automation tool but used for keylogging"
+    },
+    "mouse": {
+      "severity": 60,
+      "category": "Input Capture",
+      "reason": "Hooks into mouse events globally — surveillance vector.",
+      "cwe": "CWE-522",
+      "is_always_malicious": false,
+      "context": "Legitimate automation tool but can be used for surveillance"
+    },
+    "pyperclip": {
+      "severity": 60,
+      "category": "Input Capture",
+      "reason": "Reads and writes clipboard content — can harvest copied passwords.",
+      "cwe": "CWE-522",
+      "is_always_malicious": false,
+      "context": "Legitimate clipboard utility but used for credential theft"
+    },
+    "pygetwindow": {
+      "severity": 50,
+      "category": "Surveillance",
+      "reason": "Captures window titles — can reveal what the user is doing.",
+      "cwe": "CWE-200",
+      "is_always_malicious": false,
+      "context": "Legitimate automation tool but used for surveillance"
+    },
+    "mss": {
+      "severity": 55,
+      "category": "Surveillance",
+      "reason": "Screen capture library — surveillance vector.",
+      "cwe": "CWE-200",
+      "is_always_malicious": false,
+      "context": "Legitimate screenshot tool but used for surveillance"
+    },
+    "pillow": {
+      "severity": 25,
+      "category": "Image Processing",
+      "reason": "Image library — legitimate, but sometimes used to encode data in images (steganography).",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Most common image library - used everywhere"
+    },
+    "scapy": {
+      "severity": 85,
+      "category": "Network Pentesting",
+      "reason": "Low-level network packet crafting — reconnaissance and attack tool.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Legitimate network tool but used by attackers"
+    },
+    "impacket": {
+      "severity": 85,
+      "category": "Network Pentesting",
+      "reason": "Network protocols library used in many penetration testing tools.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Legitimate pentesting tool but used by attackers"
+    },
+    "pywin32": {
+      "severity": 65,
+      "category": "Windows Access",
+      "reason": "Deep Windows API access — can manipulate processes, registry, services.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Legitimate Windows automation tool"
+    },
+    "winshell": {
+      "severity": 60,
+      "category": "Windows Access",
+      "reason": "Windows shell integration — can create startup shortcuts (persistence).",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Legitimate Windows automation tool"
+    },
+    "schedule": {
+      "severity": 35,
+      "category": "Scheduling",
+      "reason": "Task scheduling — can be used to create time-based triggers (logic bombs).",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Legitimate scheduling library"
+    },
+    "apscheduler": {
+      "severity": 35,
+      "category": "Scheduling",
+      "reason": "Advanced scheduler — same concern as 'schedule'.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Legitimate scheduling library"
+    },
+    "pyautogui": {
+      "severity": 60,
+      "category": "Automation",
+      "reason": "GUI automation — can simulate user input to bypass interactive prompts.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Legitimate automation tool but can bypass security"
+    },
+    "selenium": {
+      "severity": 40,
+      "category": "Automation",
+      "reason": "Browser automation — can be used to scrape credentials from web sessions.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Most common browser automation tool"
+    },
+    "mechanize": {
+      "severity": 60,
+      "category": "Automation",
+      "reason": "Headless HTTP browser — credential harvesting and automated access.",
+      "cwe": "CWE-15",
+      "is_always_malicious": false,
+      "context": "Legitimate but can be used for credential harvesting"
     }
   }
 }

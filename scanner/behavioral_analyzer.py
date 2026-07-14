@@ -131,7 +131,6 @@ class BehaviorMappings:
                 current = ""
                 continue
             current += ch
-
         if current.strip():
             args.append(current.strip())
 
@@ -193,7 +192,6 @@ class BehaviorMappings:
             self.var_metadata[version] = {"line": assign.get("line", 0)}
             self.var_transforms[version] = {}
             self.var_sources[version] = {}
-            print(f"variable: {var} {rhs} {version}")
             if self._is_simple_var(rhs) and rhs in self.raw_to_current:
                 self.var_aliases[version] = self.raw_to_current[rhs]
                 continue
@@ -223,25 +221,46 @@ class BehaviorMappings:
             if matched:
                 matched_key, transform_info = matched
                 input_vars = []
-                print(f"variable1: {var} {rhs} {version} {call_name} ok {matched} no  yo {self.raw_to_current}")
 
-                if '(' in rhs and rhs.rstrip().endswith('()') and '.' in call_name:
-                    obj = rhs.split('.', 1)[0].strip()
-                    print(f"variable2: {var} {rhs} {version} {call_name} ok {matched} no {obj} yo {self.raw_to_current}")
-                    if obj and obj in self.raw_to_current:
-                        input_vars.append(obj)
-                else:
-                    print(f"variable3: {var} {rhs} {version} {call_name} ok {matched} no  yo {self.raw_to_current}")
+                import re
+                method_match = re.search(r'\.([a-zA-Z_][a-zA-Z0-9_]*)\([^)]*\)$', rhs)
+                if method_match:
+                    method_name = method_match.group(1)
 
-                    args = self._extract_all_args(rhs)
-                    for arg in args:
-                        if arg and arg in self.raw_to_current:
-                            input_vars.append(arg)
+                    obj_expr = rhs[:method_match.start()].strip()
 
-                    kwargs = self._extract_all_kwargs(rhs)
-                    for kw_name, kw_value in kwargs:
-                        if kw_value and kw_value in self.raw_to_current:
-                            input_vars.append(kw_value)
+                    input_var = None
+
+                    if obj_expr.isidentifier() and obj_expr in self.raw_to_current:
+                        input_var = obj_expr
+                    else:
+                        input_var = self._extract_all_args(obj_expr)
+                        if not input_var:
+                            match = re.search(r'\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)', obj_expr)
+                            if match:
+                                input_var = match.group(1)
+
+                    if input_var and input_var[0] in self.raw_to_current:
+                        for var in input_var:
+                            if var in self.raw_to_current:
+                                input_vars.append(var.strip())
+
+                if not input_vars:
+
+                    if '(' in rhs and rhs.rstrip().endswith('()') and '.' in call_name:
+                        obj = rhs.split('.', 1)[0].strip()
+                        if obj and obj in self.raw_to_current:
+                            input_vars.append(obj)
+                    else:
+                        args = self._extract_all_args(rhs)
+                        for arg in args:
+                            if arg and arg in self.raw_to_current:
+                                input_vars.append(arg)
+
+                        kwargs = self._extract_all_kwargs(rhs)
+                        for kw_name, kw_value in kwargs:
+                            if kw_value and kw_value in self.raw_to_current:
+                                input_vars.append(kw_value)
 
                 if input_vars:
                     input_vers = []
@@ -263,19 +282,15 @@ class BehaviorMappings:
                             "input": input_vers,
                             "macthed_key": matched_key
                         }
-                        print(f"✅ Transform stored for {version}: {self.var_transforms[version]}")
                 continue
 
     def _resolve_flow(self, version: str) -> Optional[Dict]:
         visited = set()
         current = version
         transforms = []
-        #print('in function')
         while current in self.var_metadata and current not in visited:
             visited.add(current)
-            #print(f'here {current}')
             if self.var_sources.get(current):
-                #print(f'here {current} in source')
                 return {
                     "source": self.var_sources[current],
                     "transforms": list(reversed(transforms)),
@@ -284,7 +299,6 @@ class BehaviorMappings:
             if current in self.var_transforms:
 
                 info = self.var_transforms[current]
-                #print(f'here {current} in var_transforms {self.var_transforms}')
                 if info.get("transform") and info.get("input"):
                     transforms.append({
                         "type": info["transform"],
@@ -297,7 +311,6 @@ class BehaviorMappings:
                         current = info["input"]
                     continue
 
-            #print(f'transforms {transforms}')
             if current in self.var_aliases:
                 current = self.var_aliases[current]
                 continue
@@ -337,10 +350,8 @@ class BehaviorMappings:
 
                         if arg_value in self.raw_to_current:
                             ver = self.raw_to_current[arg_value]
-                            #print(f'ok {arg_value} {ver}')
                             flow = self._resolve_flow(ver)
                         else:
-                            #print(f'not ok {arg_value}')
                             flow = self._resolve_flow(arg_value)
 
                         if flow:
@@ -354,18 +365,15 @@ class BehaviorMappings:
                             self.flows.append(flow)
 
                     for arg in detail.get("args", []):
-                        #print(f'\n\narg: {arg}')
                         process_arg(arg, "positional")
 
                     for kw in detail.get("keywords", []):
                         if kw:
                             arg_name = kw.get("arg")
                             value = kw.get("value")
-                            #print(f'\n\nkw: {value}')
                             process_arg(value, "keyword", arg_name)
 
     def _enrich_flow(self, flow: Dict) -> Dict:
-        #print(f'{flow}')
         source_info = flow["source"]
         transforms_list = flow["transforms"]
         sink_type = flow["sink_type"]
@@ -387,7 +395,7 @@ class BehaviorMappings:
             "sink_category": flow.get("sink_category"),
             "sink_arg_type": flow.get("sink_arg_type", "unknown"),
             "sink_arg_name": flow.get("sink_arg_name"),
-            "source_var": flow.get("source_var"),
+            "source_var": flow.get("source_var").split("#")[0],
             "data_flow": " → ".join(
                 [source_info.get("type", "unknown")] +
                 [t.get("type", "unknown") for t in transforms_list] +
@@ -405,13 +413,13 @@ class BehaviorMappings:
 
         return {
             "behaviour_analysis": {
-                #"enriched_flows": enriched_flows,
-                #"feature_vector": feature_vector
+                "enriched_flows": enriched_flows,
+                "feature_vector": feature_vector
             }
         }
 
 if __name__ == "__main__":
     b = BehaviorMappings()
-    parser_result = parser.Parser(r'C:\Users\vijen\Downloads\TrustGuard\test_samples\credential_theft.py').parse()
+    parser_result = parser.Parser(r'C:\Users\Acer\Downloads\TrustGuard\test_samples\credential_theft.py').parse()
     result = b.analyze_parser_result(parser_result)
     print(json.dumps(result, indent=2))

@@ -1,3 +1,4 @@
+import json
 import sys
 
 from datetime import datetime
@@ -5,6 +6,7 @@ import scanner.dangerous_imports
 import scanner.dangerous_api
 import scanner.secret_scanner
 import scanner.obfuscation_detector
+import scanner.behavioral_analyzer
 
 import scanner.parser as parser
 from typing import Dict, Any, Optional, List, Tuple, Union
@@ -51,7 +53,10 @@ def run_scan(
         obfuscationDetector = scanner.obfuscation_detector.ObfuscationDetector()
         result.append(run_stage("Obfuscation scan", obfuscationDetector.analyze_parser_result, parser_result))
 
-        print(result)
+        behavioralAnalyzer = scanner.behavioral_analyzer.BehaviorMappings()
+        result.append(run_stage("Behavioral Analyzer scan", behavioralAnalyzer.analyze_parser_result, parser_result))
+
+        return result
     except RuntimeError as e:
         print(f"[FAIL] {str(e)}")
         raise
@@ -79,7 +84,7 @@ def main():
             verbose=args.verbose,
             llm_enabled=args.llm
         )
-        print(result)
+        print(json.dumps(result, indent=2))
     except KeyboardInterrupt:
         print("\n[!] Scan interrupted by user")
         sys.exit(130)

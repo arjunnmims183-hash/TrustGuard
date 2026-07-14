@@ -1,7 +1,6 @@
 import json
 from typing import Dict, Any, Optional, List, Set, Tuple
 
-import parser
 from scanner.io import import_json
 
 class BehaviorMappings:
@@ -418,8 +417,9 @@ class BehaviorMappings:
             }
         }
 
-if __name__ == "__main__":
-    b = BehaviorMappings()
-    parser_result = parser.Parser(r'C:\Users\Acer\Downloads\TrustGuard\test_samples\credential_theft.py').parse()
-    result = b.analyze_parser_result(parser_result)
-    print(json.dumps(result, indent=2))
+# if __name__ == "__main__":
+#     b = BehaviorMappings()
+#     import parser
+#     parser_result = parser.Parser(r'C:\Users\Acer\Downloads\TrustGuard\test_samples\credential_theft.py').parse()
+#     result = b.analyze_parser_result(parser_result)
+#     print(json.dumps(result, indent=2))

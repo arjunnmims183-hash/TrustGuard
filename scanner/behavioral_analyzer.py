@@ -199,7 +199,8 @@ class BehaviorMappings:
                 self.var_sources[version] = {
                     "type": "user_input",
                     "description": "Hardcoded string literal.",
-                    "category": "recon_calls"
+                    "category": "recon_calls",
+                    "arguments": rhs.strip("'\"")
                 }
                 continue
 
@@ -210,8 +211,10 @@ class BehaviorMappings:
             matched = self._match_call_to_mapping(call_name, self.source_functions)
 
             if matched:
+                args = self._extract_all_args(rhs)
                 matched_key, source_info = matched
                 self.var_sources[version] = source_info.copy()
+                self.var_sources[version]["arguments"] = [arg.strip("'\"") for arg in args]
                 self.var_sources[version]["matched_key"] = matched_key
                 continue
 
@@ -324,7 +327,8 @@ class BehaviorMappings:
                 "source": {
                     "type": "user_input",
                     "description": "Hardcoded string literal.",
-                    "category": "recon_calls"
+                    "category": "recon_calls",
+                    "value": current
                 },
                 "transforms": [],
                 "source_var": current[:30] + "..." if len(current) > 30 else current,
@@ -382,6 +386,7 @@ class BehaviorMappings:
             "source": source_info.get("type", "unknown"),
             "source_description": source_info.get("description", "Unknown data source."),
             "source_matched_key": source_info.get("matched_key"),
+            "source_arguments": source_info.get("arguments", []),
             "transforms": [t.get("type", "unknown") for t in transforms_list],
             "transform_descriptions": [t.get("description", "Unknown transformation.") for t in transforms_list],
             "transform_matched_keys": [t.get("matched_key", "") for t in transforms_list],

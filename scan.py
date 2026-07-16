@@ -7,6 +7,7 @@ import scanner.dangerous_api
 import scanner.secret_scanner
 import scanner.obfuscation_detector
 import scanner.behavioral_analyzer
+import scanner.correlation_engine  
 
 import scanner.parser as parser
 from typing import Dict, Any, Optional, List, Tuple, Union
@@ -55,6 +56,11 @@ def run_scan(
 
         behavioralAnalyzer = scanner.behavioral_analyzer.BehaviorMappings()
         result.append(run_stage("Behavioral Analyzer scan", behavioralAnalyzer.analyze_parser_result, parser_result))
+        print(result)
+        
+        correlationEngine = scanner.correlation_engine.CorrelationEngine()
+        result.append(run_stage("Correlation Engine", correlationEngine.analyze, result))
+
 
         return result
     except RuntimeError as e:

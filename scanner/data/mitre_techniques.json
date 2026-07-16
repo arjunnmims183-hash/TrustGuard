@@ -1,0 +1,4640 @@
+{
+  "version": "2.0.1",
+  "description": "Generic MITRE ATT&CK technique detection for Python code, using flow analysis, API calls, imports, vulnerabilities, obfuscation, behavior features, and dangerous calls.",
+  "techniques": {
+
+    "T1552.001": {
+      "id": "T1552.001",
+      "name": "Credentials from Environment Variables",
+      "tactic": "TA0006 - Credential Access",
+      "severity": "CRITICAL",
+      "description": "Adversaries may obtain credentials from environment variables.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": ["env_var", "credential"],
+          "optional_types": ["user_input"],
+          "weight_per_source": 25,
+          "max_source_weight": 35,
+          "context_bonus": {
+            "variable_name_patterns": ["AWS_", "SECRET_", "TOKEN_", "PASSWORD_", "API_", "AUTH_", "CRED_"],
+            "bonus": 10
+          }
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": ["base64_encode", "zlib_compress", "encode", "hexlify", "json_serialize", "pickle_serialize"],
+          "weight_per_transform": 12,
+          "max_transform_weight": 30,
+          "transform_count_bonus": {
+            "1": 5,
+            "2": 12,
+            "3": 20,
+            "4": 30
+          }
+        },
+        "sink_requirements": {
+          "required_types": ["network_send"],
+          "optional_types": ["file_write", "process_exec", "eval_exec"],
+          "weight_per_sink": 30,
+          "max_sink_weight": 40,
+          "context_bonus": {
+            "external_destination": 15,
+            "known_cloud_endpoint": -20,
+            "localhost": -25,
+            "internal_ip": -15
+          },
+          "argument_patterns": {
+            "network_send": {
+              "data": 10,
+              "json": 5,
+              "files": 8
+            },
+            "file_write": {
+              "temp": 5,
+              "home": 3,
+              "system": 15
+            }
+          }
+        },
+        "flow_signatures": [
+          {
+            "name": "direct_exfiltration",
+            "signature": ["env_var", "network_send"],
+            "score_bonus": 20
+          },
+          {
+            "name": "obfuscated_exfiltration",
+            "signature": ["env_var", "base64_encode", "network_send"],
+            "score_bonus": 30
+          },
+          {
+            "name": "compressed_obfuscated_exfiltration",
+            "signature": ["env_var", "base64_encode", "zlib_compress", "network_send"],
+            "score_bonus": 40
+          },
+          {
+            "name": "multi_obfuscation_exfiltration",
+            "signature": ["env_var", "encode", "base64_encode", "zlib_compress", "network_send"],
+            "score_bonus": 50
+          },
+          {
+            "name": "credential_dumping",
+            "signature": ["env_var", "file_write"],
+            "score_bonus": 15
+          }
+        ],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["os.getenv", "os.environ.get", "os.environ"],
+          "weight_per_call": 20,
+          "max_dangerous_call_weight": 25
+        },
+        "import_requirements": {
+          "required": ["os"],
+          "optional": ["requests", "base64", "zlib", "json", "pickle"],
+          "weight_per_import": 10,
+          "max_import_weight": 20
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["AWS Access Key ID", "AWS Secret Access Key", "Generic API Key", "Generic Secret/Token", "Sensitive keyword"],
+          "weight_per_finding": 15,
+          "max_vulnerability_weight": 25
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": ["Base64 encode on env data", "Zlib compress on env data"],
+          "weight_per_obfuscation": 10,
+          "max_obfuscation_weight": 15
+        },
+        "behavior_feature_requirements": {
+          "required": ["credential_access_calls"],
+          "optional": ["network_calls", "obfuscation_calls", "file_write_calls", "eval_exec_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 25
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate AWS SDK usage",
+            "condition": "import_boto3 OR import_botocore OR uses_boto3_client",
+            "deduction": 40
+          },
+          {
+            "name": "Azure SDK usage",
+            "condition": "import_azure_identity OR uses_DefaultAzureCredential",
+            "deduction": 40
+          },
+          {
+            "name": "GCP SDK usage",
+            "condition": "import_google_oauth2 OR uses_google_auth",
+            "deduction": 40
+          },
+          {
+            "name": "Localhost or internal network",
+            "condition": "sink_destination_is_localhost OR sink_destination_in_private_ip_range",
+            "deduction": 30
+          },
+          {
+            "name": "Known safe env var names",
+            "condition": "source_variable_name_matches ['PATH', 'HOME', 'USER', 'LANG', 'PWD', 'SHELL', 'TERM']",
+            "deduction": 30
+          },
+          {
+            "name": "Test environment",
+            "condition": "file_path_contains 'test' OR variable_name_contains 'test'",
+            "deduction": 25
+          },
+          {
+            "name": "Django/Flask config usage",
+            "condition": "import_django OR import_flask AND uses_config_loading",
+            "deduction": 20
+          },
+          {
+            "name": "Configuration file loading",
+            "condition": "import_configparser OR import_dotenv OR import_pydantic",
+            "deduction": 20
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.30,
+          "transform": 0.15,
+          "sink": 0.25,
+          "flow_bonus": 0.10,
+          "dangerous_call": 0.10,
+          "import": 0.05,
+          "vulnerability": 0.10,
+          "obfuscation": 0.10,
+          "behavior_feature": 0.10
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["flow_bonus >= 30", "source_found and sink_found"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["source_found and sink_found"] },
+          "LOW": { "min_score": 50, "additional_conditions": ["source_found"] }
+        }
+      }
+    },
+
+    "T1552.003": {
+      "id": "T1552.003",
+      "name": "Credentials in URLs",
+      "tactic": "TA0006 - Credential Access",
+      "severity": "CRITICAL",
+      "description": "Adversaries may obtain credentials from URLs (e.g., in connection strings, basic auth).",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": ["user_input", "file_read"],
+          "weight_per_source": 15,
+          "max_source_weight": 20
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": [],
+          "optional_types": ["network_send", "file_write"],
+          "weight_per_sink": 15,
+          "max_sink_weight": 20
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["requests.get", "requests.post", "urllib.request.urlopen"],
+          "weight_per_call": 10,
+          "max_dangerous_call_weight": 15
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["requests", "urllib"],
+          "weight_per_import": 5,
+          "max_import_weight": 10
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["Basic Auth in URL", "Database Connection String", "Redis Connection String"],
+          "weight_per_finding": 25,
+          "max_vulnerability_weight": 40
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_feature": 0,
+          "max_feature_weight": 0
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate connection strings in config",
+            "condition": "file_path_contains 'config' OR file_path_contains 'settings'",
+            "deduction": 30
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.20,
+          "transform": 0.0,
+          "sink": 0.20,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.10,
+          "import": 0.05,
+          "vulnerability": 0.45,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.0
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["vulnerability_found"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": [] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1056.001": {
+      "id": "T1056.001",
+      "name": "Input Capture (Keylogging)",
+      "tactic": "TA0006 - Credential Access",
+      "severity": "HIGH",
+      "description": "Adversaries may capture user input via keylogging.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": ["user_input"],
+          "weight_per_source": 10,
+          "max_source_weight": 15
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": [],
+          "optional_types": ["network_send", "file_write"],
+          "weight_per_sink": 20,
+          "max_sink_weight": 25
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["getpass.getpass"],
+          "weight_per_call": 20,
+          "max_dangerous_call_weight": 25
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["pynput", "keyboard", "getpass"],
+          "weight_per_import": 20,
+          "max_import_weight": 35
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_feature": 0,
+          "max_feature_weight": 0
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate accessibility tool",
+            "condition": "import_pyautogui OR import_selenium",
+            "deduction": 30
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.10,
+          "transform": 0.0,
+          "sink": 0.20,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.20,
+          "import": 0.30,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.0
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["import_pynput OR import_keyboard"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": [] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1528": {
+      "id": "T1528",
+      "name": "Steal Application Access Token",
+      "tactic": "TA0006 - Credential Access",
+      "severity": "CRITICAL",
+      "description": "Adversaries may steal application access tokens (e.g., OAuth, API keys).",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": ["env_var"],
+          "optional_types": ["credential"],
+          "weight_per_source": 20,
+          "max_source_weight": 30
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": ["base64_encode"],
+          "weight_per_transform": 10,
+          "max_transform_weight": 15
+        },
+        "sink_requirements": {
+          "required_types": ["network_send"],
+          "optional_types": ["file_write"],
+          "weight_per_sink": 25,
+          "max_sink_weight": 35
+        },
+        "flow_signatures": [
+          {
+            "name": "token_exfiltration",
+            "signature": ["env_var", "network_send"],
+            "score_bonus": 25
+          }
+        ],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["os.getenv", "keyring.get_password"],
+          "weight_per_call": 15,
+          "max_dangerous_call_weight": 20
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["keyring"],
+          "weight_per_import": 15,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["Generic API Key", "GitHub Token", "Slack Token", "Stripe API Key"],
+          "weight_per_finding": 20,
+          "max_vulnerability_weight": 35
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": ["credential_access_calls"],
+          "optional": ["network_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 25
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate token usage in API calls",
+            "condition": "uses_requests_with_bearer_token AND destination_known_cloud",
+            "deduction": 35
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.25,
+          "transform": 0.10,
+          "sink": 0.25,
+          "flow_bonus": 0.10,
+          "dangerous_call": 0.10,
+          "import": 0.05,
+          "vulnerability": 0.25,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.10
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["vulnerability_found AND network_sink_found"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": [] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1087.001": {
+      "id": "T1087.001",
+      "name": "Account Discovery (Local Account)",
+      "tactic": "TA0007 - Discovery",
+      "severity": "MEDIUM",
+      "description": "Adversaries may enumerate local accounts.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_source": 0,
+          "max_source_weight": 0
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": [],
+          "optional_types": ["file_write", "network_send"],
+          "weight_per_sink": 10,
+          "max_sink_weight": 15
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["os.getlogin", "getpass.getuser", "pwd.getpwuid", "win32api.GetUserName"],
+          "weight_per_call": 20,
+          "max_dangerous_call_weight": 35
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["pwd", "grp", "win32api"],
+          "weight_per_import": 15,
+          "max_import_weight": 20
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": ["recon_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate user info in logging",
+            "condition": "import_logging AND call_in_logging_context",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.0,
+          "transform": 0.0,
+          "sink": 0.10,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.40,
+          "import": 0.20,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.30
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["multiple_account_calls"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": [] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1083": {
+      "id": "T1083",
+      "name": "File and Directory Discovery",
+      "tactic": "TA0007 - Discovery",
+      "severity": "MEDIUM",
+      "description": "Adversaries may enumerate files and directories.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": ["file_read"],
+          "weight_per_source": 10,
+          "max_source_weight": 15
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": [],
+          "optional_types": ["file_write", "network_send"],
+          "weight_per_sink": 10,
+          "max_sink_weight": 15
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["os.listdir", "os.walk", "glob.glob", "os.scandir", "pathlib.Path.glob", "pathlib.Path.rglob"],
+          "weight_per_call": 20,
+          "max_dangerous_call_weight": 35
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["glob", "pathlib"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": ["file_read_calls", "recon_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 25
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate file operations in app",
+            "condition": "file_path_contains 'static' OR file_path_contains 'media'",
+            "deduction": 20
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.10,
+          "transform": 0.0,
+          "sink": 0.10,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.40,
+          "import": 0.10,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.30
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["multiple_file_discovery_calls"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": [] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1082": {
+      "id": "T1082",
+      "name": "System Information Discovery",
+      "tactic": "TA0007 - Discovery",
+      "severity": "MEDIUM",
+      "description": "Adversaries may gather system information.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_source": 0,
+          "max_source_weight": 0
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": [],
+          "optional_types": ["network_send", "file_write"],
+          "weight_per_sink": 10,
+          "max_sink_weight": 15
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["platform.system", "platform.node", "platform.machine", "platform.processor", "socket.gethostname", "os.uname", "sys.platform", "psutil.cpu_count", "psutil.virtual_memory", "platform.release", "platform.version"],
+          "weight_per_call": 15,
+          "max_dangerous_call_weight": 35
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["platform", "socket", "psutil"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": ["recon_calls"],
+          "weight_per_feature": 20,
+          "max_feature_weight": 30
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate system info in logging",
+            "condition": "import_logging AND call_in_logging_context",
+            "deduction": 25
+          },
+          {
+            "name": "Legitimate cross-platform code",
+            "condition": "uses_platform_in_conditional AND file_path_contains 'compat'",
+            "deduction": 20
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.0,
+          "transform": 0.0,
+          "sink": 0.10,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.40,
+          "import": 0.10,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.40
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["multiple_system_info_calls"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": [] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1046": {
+      "id": "T1046",
+      "name": "Network Service Discovery",
+      "tactic": "TA0007 - Discovery",
+      "severity": "MEDIUM",
+      "description": "Adversaries may scan for network services.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_source": 0,
+          "max_source_weight": 0
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": [],
+          "optional_types": ["network_send"],
+          "weight_per_sink": 10,
+          "max_sink_weight": 15
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["socket.gethostbyname", "socket.getaddrinfo", "socket.gethostbyaddr", "dns.resolver.query"],
+          "weight_per_call": 20,
+          "max_dangerous_call_weight": 35
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["socket", "dns"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": ["network_calls", "recon_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 25
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate DNS resolution",
+            "condition": "uses_dns_in_http_client AND destination_known_cloud",
+            "deduction": 30
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.0,
+          "transform": 0.0,
+          "sink": 0.10,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.40,
+          "import": 0.10,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.40
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["multiple_dns_lookups"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": [] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1059.006": {
+      "id": "T1059.006",
+      "name": "Command and Scripting Interpreter (Python)",
+      "tactic": "TA0002 - Execution",
+      "severity": "HIGH",
+      "description": "Adversaries may abuse Python to execute arbitrary code.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": ["user_input", "network_recv"],
+          "optional_types": ["file_read"],
+          "weight_per_source": 20,
+          "max_source_weight": 30,
+          "context_bonus": {
+            "argument_contains_code": 15,
+            "source_is_obfuscated": 10
+          }
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": ["base64_decode", "zlib_decompress", "decode", "hexlify", "json_deserialize", "pickle_deserialize"],
+          "weight_per_transform": 15,
+          "max_transform_weight": 25,
+          "transform_count_bonus": {
+            "1": 10,
+            "2": 20,
+            "3": 30,
+            "4": 40
+          }
+        },
+        "sink_requirements": {
+          "required_types": ["eval_exec"],
+          "optional_types": ["process_exec", "network_send"],
+          "weight_per_sink": 35,
+          "max_sink_weight": 45,
+          "context_bonus": {
+            "argument_is_code": 20,
+            "sink_has_compile": 15,
+            "sink_has_execfile": 10
+          },
+          "argument_patterns": {
+            "eval_exec": {
+              "code_string": 15,
+              "dynamic_import": 10,
+              "compiled_code": 12
+            }
+          }
+        },
+        "flow_signatures": [
+          {
+            "name": "user_input_to_eval",
+            "signature": ["user_input", "eval_exec"],
+            "score_bonus": 25
+          },
+          {
+            "name": "obfuscated_payload_to_exec",
+            "signature": ["user_input", "base64_decode", "eval_exec"],
+            "score_bonus": 35
+          },
+          {
+            "name": "network_received_to_exec",
+            "signature": ["network_recv", "eval_exec"],
+            "score_bonus": 40
+          },
+          {
+            "name": "decoded_and_compiled_payload",
+            "signature": ["user_input", "base64_decode", "zlib_decompress", "eval_exec"],
+            "score_bonus": 50
+          }
+        ],
+        "dangerous_call_requirements": {
+          "required": ["eval", "exec"],
+          "optional": ["compile", "__import__", "importlib.import_module"],
+          "weight_per_call": 25,
+          "max_dangerous_call_weight": 40
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["base64", "zlib", "pickle", "marshal", "importlib"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["Insecure Deserialization — pickle", "Insecure Deserialization — marshal", "eval/exec on received data"],
+          "weight_per_finding": 15,
+          "max_vulnerability_weight": 20
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": ["Base64 decode → exec/eval", "eval/exec with decode chain", "exec(compile())"],
+          "weight_per_obfuscation": 15,
+          "max_obfuscation_weight": 25
+        },
+        "behavior_feature_requirements": {
+          "required": ["eval_exec_calls"],
+          "optional": ["obfuscation_calls", "network_receive_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate eval in template engine",
+            "condition": "import_jinja2 OR import_django_template AND eval_in_template_context",
+            "deduction": 40
+          },
+          {
+            "name": "Test code",
+            "condition": "file_path_contains 'test' AND eval_not_on_user_input",
+            "deduction": 30
+          },
+          {
+            "name": "Configuration parsing",
+            "condition": "import_ast AND uses_literal_eval",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.20,
+          "transform": 0.15,
+          "sink": 0.25,
+          "flow_bonus": 0.10,
+          "dangerous_call": 0.15,
+          "import": 0.05,
+          "vulnerability": 0.10,
+          "obfuscation": 0.15,
+          "behavior_feature": 0.10
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["flow_bonus >= 30", "source_is_user_input_or_network"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["sink_is_eval_exec"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1059.004": {
+      "id": "T1059.004",
+      "name": "Command and Scripting Interpreter (Shell)",
+      "tactic": "TA0002 - Execution",
+      "severity": "CRITICAL",
+      "description": "Adversaries may execute shell commands.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": ["user_input"],
+          "optional_types": ["file_read", "network_recv"],
+          "weight_per_source": 20,
+          "max_source_weight": 30
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": ["process_exec"],
+          "optional_types": ["network_send"],
+          "weight_per_sink": 35,
+          "max_sink_weight": 45,
+          "context_bonus": {
+            "shell_true": 20,
+            "command_with_user_input": 15
+          }
+        },
+        "flow_signatures": [
+          {
+            "name": "user_input_to_shell",
+            "signature": ["user_input", "process_exec"],
+            "score_bonus": 30
+          }
+        ],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["os.system", "os.popen", "subprocess.run", "subprocess.Popen", "subprocess.call"],
+          "weight_per_call": 25,
+          "max_dangerous_call_weight": 40
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["os", "subprocess"],
+          "weight_per_import": 15,
+          "max_import_weight": 20
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["Command Injection — shell=True", "Command Injection — os.system with variable"],
+          "weight_per_finding": 20,
+          "max_vulnerability_weight": 30
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": ["process_calls"],
+          "optional": ["network_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate automation",
+            "condition": "file_path_contains 'scripts' OR file_path_contains 'deploy'",
+            "deduction": 30
+          },
+          {
+            "name": "Legitimate build tools",
+            "condition": "import_setuptools OR import_distutils",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.20,
+          "transform": 0.0,
+          "sink": 0.30,
+          "flow_bonus": 0.10,
+          "dangerous_call": 0.20,
+          "import": 0.05,
+          "vulnerability": 0.15,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.10
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["sink_is_process_exec AND source_is_user_input"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["sink_is_process_exec"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1059.001": {
+      "id": "T1059.001",
+      "name": "Command and Scripting Interpreter (PowerShell)",
+      "tactic": "TA0002 - Execution",
+      "severity": "HIGH",
+      "description": "Adversaries may execute PowerShell commands.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": ["user_input"],
+          "optional_types": ["file_read"],
+          "weight_per_source": 15,
+          "max_source_weight": 20
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": ["process_exec"],
+          "optional_types": [],
+          "weight_per_sink": 30,
+          "max_sink_weight": 40
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["subprocess.run", "subprocess.Popen", "os.system"],
+          "weight_per_call": 15,
+          "max_dangerous_call_weight": 25
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["subprocess"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["Command Injection — shell=True"],
+          "weight_per_finding": 15,
+          "max_vulnerability_weight": 20
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": ["process_calls"],
+          "optional": [],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate Windows automation",
+            "condition": "file_path_contains 'win' OR file_path_contains 'admin'",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.15,
+          "transform": 0.0,
+          "sink": 0.30,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.20,
+          "import": 0.05,
+          "vulnerability": 0.10,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.20
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["call_contains_powershell"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": [] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1064": {
+      "id": "T1064",
+      "name": "Dynamic Code Execution",
+      "tactic": "TA0002 - Execution",
+      "severity": "CRITICAL",
+      "description": "Adversaries may use runtime code generation to execute arbitrary code.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": ["user_input", "network_recv"],
+          "optional_types": ["file_read"],
+          "weight_per_source": 20,
+          "max_source_weight": 30
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": ["base64_decode", "zlib_decompress", "decode"],
+          "weight_per_transform": 10,
+          "max_transform_weight": 20
+        },
+        "sink_requirements": {
+          "required_types": ["eval_exec"],
+          "optional_types": [],
+          "weight_per_sink": 35,
+          "max_sink_weight": 45
+        },
+        "flow_signatures": [
+          {
+            "name": "user_input_to_eval",
+            "signature": ["user_input", "eval_exec"],
+            "score_bonus": 25
+          }
+        ],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["eval", "exec", "compile", "execfile"],
+          "weight_per_call": 25,
+          "max_dangerous_call_weight": 40
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["base64", "zlib"],
+          "weight_per_import": 5,
+          "max_import_weight": 10
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["eval/exec on received data"],
+          "weight_per_finding": 20,
+          "max_vulnerability_weight": 25
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": ["Base64 decode → exec/eval", "exec(compile())"],
+          "weight_per_obfuscation": 15,
+          "max_obfuscation_weight": 25
+        },
+        "behavior_feature_requirements": {
+          "required": ["eval_exec_calls"],
+          "optional": [],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate template engine",
+            "condition": "import_jinja2 OR import_django_template",
+            "deduction": 40
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.20,
+          "transform": 0.10,
+          "sink": 0.30,
+          "flow_bonus": 0.10,
+          "dangerous_call": 0.20,
+          "import": 0.05,
+          "vulnerability": 0.15,
+          "obfuscation": 0.15,
+          "behavior_feature": 0.10
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["source_is_user_input AND sink_is_eval_exec"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["sink_is_eval_exec"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1129": {
+      "id": "T1129",
+      "name": "Shared Modules (Dynamic Library Loading)",
+      "tactic": "TA0002 - Execution",
+      "severity": "HIGH",
+      "description": "Adversaries may load shared libraries to execute arbitrary code.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_source": 0,
+          "max_source_weight": 0
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": [],
+          "optional_types": ["process_exec", "eval_exec"],
+          "weight_per_sink": 20,
+          "max_sink_weight": 25
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["ctypes.cdll.LoadLibrary", "ctypes.windll", "ctypes.CDLL", "ctypes.WinDLL", "ctypes.OleDLL"],
+          "weight_per_call": 30,
+          "max_dangerous_call_weight": 45
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["ctypes", "cffi"],
+          "weight_per_import": 20,
+          "max_import_weight": 25
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": ["process_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 15
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate system integration",
+            "condition": "file_path_contains 'compat' OR file_path_contains 'native'",
+            "deduction": 20
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.0,
+          "transform": 0.0,
+          "sink": 0.15,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.45,
+          "import": 0.25,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.15
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["dangerous_call_found"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["import_ctypes"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1547.001": {
+      "id": "T1547.001",
+      "name": "Boot or Logon Autostart Execution (Registry)",
+      "tactic": "TA0003 - Persistence",
+      "severity": "HIGH",
+      "description": "Adversaries may modify registry run keys for persistence.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_source": 0,
+          "max_source_weight": 0
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": [],
+          "optional_types": ["file_write"],
+          "weight_per_sink": 15,
+          "max_sink_weight": 20
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["winreg.OpenKey", "winreg.SetValueEx", "winreg.CreateKey", "winreg.SetValue"],
+          "weight_per_call": 25,
+          "max_dangerous_call_weight": 40
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["winreg"],
+          "weight_per_import": 20,
+          "max_import_weight": 25
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["Persistence — Windows registry run key"],
+          "weight_per_finding": 20,
+          "max_vulnerability_weight": 25
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": ["persistence_calls"],
+          "weight_per_feature": 20,
+          "max_feature_weight": 25
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate Windows app",
+            "condition": "import_pywin32 OR file_path_contains 'win'",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.0,
+          "transform": 0.0,
+          "sink": 0.10,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.40,
+          "import": 0.20,
+          "vulnerability": 0.10,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.20
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["dangerous_call_found AND vulnerability_found"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["dangerous_call_found"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1547.006": {
+      "id": "T1547.006",
+      "name": "Boot or Logon Autostart Execution (Startup Folder)",
+      "tactic": "TA0003 - Persistence",
+      "severity": "HIGH",
+      "description": "Adversaries may place files in the startup folder for persistence.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": ["file_read"],
+          "weight_per_source": 10,
+          "max_source_weight": 15
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": ["file_write"],
+          "optional_types": [],
+          "weight_per_sink": 25,
+          "max_sink_weight": 35
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["shutil.copy", "shutil.copy2", "shutil.move", "os.symlink"],
+          "weight_per_call": 20,
+          "max_dangerous_call_weight": 30
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["shutil", "os"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["Persistence — startup/init script"],
+          "weight_per_finding": 15,
+          "max_vulnerability_weight": 20
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": ["persistence_calls", "file_write_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 25
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate installer",
+            "condition": "file_path_contains 'install' OR file_path_contains 'setup'",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.05,
+          "transform": 0.0,
+          "sink": 0.25,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.30,
+          "import": 0.10,
+          "vulnerability": 0.10,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.20
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["file_write_to_startup"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": [] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1053.003": {
+      "id": "T1053.003",
+      "name": "Scheduled Task/Job (Cron)",
+      "tactic": "TA0003 - Persistence",
+      "severity": "HIGH",
+      "description": "Adversaries may use cron for persistence.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": ["user_input"],
+          "weight_per_source": 10,
+          "max_source_weight": 15
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": ["file_write"],
+          "optional_types": ["process_exec"],
+          "weight_per_sink": 20,
+          "max_sink_weight": 30
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["open", "file.write"],
+          "weight_per_call": 15,
+          "max_dangerous_call_weight": 20
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_import": 0,
+          "max_import_weight": 0
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["Persistence — crontab modification"],
+          "weight_per_finding": 20,
+          "max_vulnerability_weight": 30
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": ["persistence_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate cron jobs",
+            "condition": "file_path_contains 'cron' OR file_path_contains 'scheduler'",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.10,
+          "transform": 0.0,
+          "sink": 0.20,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.20,
+          "import": 0.0,
+          "vulnerability": 0.30,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.20
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["vulnerability_found AND file_write_to_cron"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["vulnerability_found"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1543.002": {
+      "id": "T1543.002",
+      "name": "Systemd Service",
+      "tactic": "TA0003 - Persistence",
+      "severity": "HIGH",
+      "description": "Adversaries may create or modify systemd services for persistence.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": ["user_input"],
+          "weight_per_source": 10,
+          "max_source_weight": 15
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": ["file_write", "process_exec"],
+          "optional_types": [],
+          "weight_per_sink": 20,
+          "max_sink_weight": 30
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["open", "file.write", "subprocess.run", "os.system"],
+          "weight_per_call": 15,
+          "max_dangerous_call_weight": 25
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["subprocess"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["Persistence — systemd service"],
+          "weight_per_finding": 20,
+          "max_vulnerability_weight": 30
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": ["persistence_calls", "process_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate systemd service management",
+            "condition": "file_path_contains 'systemd' OR file_path_contains 'service'",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.10,
+          "transform": 0.0,
+          "sink": 0.20,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.20,
+          "import": 0.05,
+          "vulnerability": 0.25,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.20
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["vulnerability_found AND file_write_to_systemd"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["vulnerability_found"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1546.004": {
+      "id": "T1546.004",
+      "name": "Shell Configuration Modification (.bashrc, .profile)",
+      "tactic": "TA0003 - Persistence",
+      "severity": "MEDIUM",
+      "description": "Adversaries may modify shell configuration files for persistence.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": ["user_input"],
+          "weight_per_source": 5,
+          "max_source_weight": 10
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": ["file_write"],
+          "optional_types": [],
+          "weight_per_sink": 20,
+          "max_sink_weight": 30
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["open", "file.write"],
+          "weight_per_call": 15,
+          "max_dangerous_call_weight": 20
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_import": 0,
+          "max_import_weight": 0
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["Persistence — startup/init script"],
+          "weight_per_finding": 15,
+          "max_vulnerability_weight": 20
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": ["persistence_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate shell configuration",
+            "condition": "file_path_contains 'bashrc' OR file_path_contains 'profile'",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.05,
+          "transform": 0.0,
+          "sink": 0.25,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.20,
+          "import": 0.0,
+          "vulnerability": 0.20,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.30
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["vulnerability_found AND file_write_to_shell_config"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["vulnerability_found"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1505": {
+      "id": "T1505",
+      "name": "Server Software Component (Backdoor)",
+      "tactic": "TA0003 - Persistence",
+      "severity": "CRITICAL",
+      "description": "Adversaries may install a backdoor into server software.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": ["user_input", "network_recv"],
+          "weight_per_source": 15,
+          "max_source_weight": 20
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": ["base64_decode", "zlib_decompress"],
+          "weight_per_transform": 10,
+          "max_transform_weight": 15
+        },
+        "sink_requirements": {
+          "required_types": ["eval_exec", "process_exec"],
+          "optional_types": ["network_send"],
+          "weight_per_sink": 30,
+          "max_sink_weight": 40
+        },
+        "flow_signatures": [
+          {
+            "name": "network_to_backdoor",
+            "signature": ["network_recv", "eval_exec"],
+            "score_bonus": 30
+          }
+        ],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["eval", "exec", "os.system", "subprocess.run", "__import__"],
+          "weight_per_call": 25,
+          "max_dangerous_call_weight": 35
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["socket", "requests"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["Hidden route — suspicious path", "Hidden route — long random path", "eval/exec on received data"],
+          "weight_per_finding": 20,
+          "max_vulnerability_weight": 30
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": ["Base64 decode → exec/eval"],
+          "weight_per_obfuscation": 15,
+          "max_obfuscation_weight": 20
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": ["network_receive_calls", "eval_exec_calls", "process_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 25
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate web framework",
+            "condition": "import_flask OR import_django AND uses_routes",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.10,
+          "transform": 0.10,
+          "sink": 0.25,
+          "flow_bonus": 0.10,
+          "dangerous_call": 0.20,
+          "import": 0.05,
+          "vulnerability": 0.20,
+          "obfuscation": 0.10,
+          "behavior_feature": 0.10
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["vulnerability_found AND sink_is_eval_exec"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["sink_is_eval_exec"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1027": {
+      "id": "T1027",
+      "name": "Obfuscated Files or Information",
+      "tactic": "TA0005 - Defense Evasion",
+      "severity": "MEDIUM",
+      "description": "Adversaries may obfuscate files or information to evade detection.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": ["user_input", "file_read"],
+          "weight_per_source": 5,
+          "max_source_weight": 10
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": ["base64_encode", "base64_decode", "zlib_compress", "zlib_decompress", "encode", "decode", "hexlify", "xor"],
+          "weight_per_transform": 15,
+          "max_transform_weight": 25,
+          "transform_count_bonus": {
+            "1": 5,
+            "2": 15,
+            "3": 25
+          }
+        },
+        "sink_requirements": {
+          "required_types": [],
+          "optional_types": ["file_write", "network_send", "eval_exec"],
+          "weight_per_sink": 10,
+          "max_sink_weight": 15
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["base64.b64encode", "base64.b64decode", "zlib.compress", "zlib.decompress", "codecs.encode", "codecs.decode"],
+          "weight_per_call": 15,
+          "max_dangerous_call_weight": 25
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["base64", "zlib", "codecs", "binascii"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["High-entropy string"],
+          "weight_per_finding": 10,
+          "max_vulnerability_weight": 15
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": ["chr() chain", "XOR decode loop", "Base64 decode → exec/eval", "Hex escape sequences", "codecs.decode / rot13"],
+          "weight_per_obfuscation": 20,
+          "max_obfuscation_weight": 40
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": ["obfuscation_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate encoding for data",
+            "condition": "uses_base64_for_json AND destination_known_cloud",
+            "deduction": 20
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.05,
+          "transform": 0.20,
+          "sink": 0.05,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.15,
+          "import": 0.05,
+          "vulnerability": 0.05,
+          "obfuscation": 0.35,
+          "behavior_feature": 0.10
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["multiple_obfuscation_techniques"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["at_least_one_obfuscation"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1140": {
+      "id": "T1140",
+      "name": "Deobfuscate/Decode Files or Information",
+      "tactic": "TA0005 - Defense Evasion",
+      "severity": "HIGH",
+      "description": "Adversaries may deobfuscate or decode files/information.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": ["user_input", "file_read"],
+          "optional_types": ["network_recv"],
+          "weight_per_source": 15,
+          "max_source_weight": 20
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": ["base64_decode", "zlib_decompress", "decode", "hexlify"],
+          "weight_per_transform": 15,
+          "max_transform_weight": 25
+        },
+        "sink_requirements": {
+          "required_types": ["eval_exec"],
+          "optional_types": ["file_write", "process_exec"],
+          "weight_per_sink": 30,
+          "max_sink_weight": 35
+        },
+        "flow_signatures": [
+          {
+            "name": "decode_to_eval",
+            "signature": ["user_input", "base64_decode", "eval_exec"],
+            "score_bonus": 30
+          }
+        ],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["base64.b64decode", "zlib.decompress", "codecs.decode"],
+          "weight_per_call": 20,
+          "max_dangerous_call_weight": 30
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["base64", "zlib", "codecs"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["Base64 decode → exec/eval"],
+          "weight_per_finding": 20,
+          "max_vulnerability_weight": 25
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": ["Base64 decode → exec/eval", "zlib decompress + base64 decode chain"],
+          "weight_per_obfuscation": 20,
+          "max_obfuscation_weight": 30
+        },
+        "behavior_feature_requirements": {
+          "required": ["obfuscation_calls", "eval_exec_calls"],
+          "optional": [],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate configuration parsing",
+            "condition": "import_json AND uses_json_loads",
+            "deduction": 20
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.15,
+          "transform": 0.15,
+          "sink": 0.25,
+          "flow_bonus": 0.10,
+          "dangerous_call": 0.15,
+          "import": 0.05,
+          "vulnerability": 0.10,
+          "obfuscation": 0.15,
+          "behavior_feature": 0.10
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["decode_to_eval_flow"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["obfuscation_and_eval"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1070.004": {
+      "id": "T1070.004",
+      "name": "Indicator Removal (File Deletion)",
+      "tactic": "TA0005 - Defense Evasion",
+      "severity": "HIGH",
+      "description": "Adversaries may delete files to hide their activity.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": ["file_read"],
+          "weight_per_source": 5,
+          "max_source_weight": 10
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": ["file_delete"],
+          "optional_types": [],
+          "weight_per_sink": 30,
+          "max_sink_weight": 40
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["os.remove", "os.unlink", "shutil.rmtree", "os.rmdir"],
+          "weight_per_call": 25,
+          "max_dangerous_call_weight": 40
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["os", "shutil"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["Anti-Forensics — recursive delete", "Anti-Forensics — log/history file reference"],
+          "weight_per_finding": 15,
+          "max_vulnerability_weight": 20
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": ["file_delete_calls"],
+          "optional": ["anti_forensics_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 25
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate cleanup",
+            "condition": "file_path_contains 'temp' OR file_path_contains 'cache'",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.05,
+          "transform": 0.0,
+          "sink": 0.30,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.30,
+          "import": 0.05,
+          "vulnerability": 0.10,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.20
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["file_delete_on_sensitive_path"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["file_delete_call"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1112": {
+      "id": "T1112",
+      "name": "Modify Registry",
+      "tactic": "TA0005 - Defense Evasion",
+      "severity": "MEDIUM",
+      "description": "Adversaries may modify the Windows Registry.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_source": 0,
+          "max_source_weight": 0
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_sink": 0,
+          "max_sink_weight": 0
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["winreg.SetValueEx", "winreg.SetValue", "winreg.CreateKey", "winreg.DeleteValue", "winreg.DeleteKey"],
+          "weight_per_call": 25,
+          "max_dangerous_call_weight": 40
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["winreg"],
+          "weight_per_import": 20,
+          "max_import_weight": 25
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["Persistence — Windows registry run key"],
+          "weight_per_finding": 15,
+          "max_vulnerability_weight": 20
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": ["persistence_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate Windows config",
+            "condition": "file_path_contains 'win' AND import_winreg",
+            "deduction": 20
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.0,
+          "transform": 0.0,
+          "sink": 0.0,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.50,
+          "import": 0.25,
+          "vulnerability": 0.10,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.15
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["dangerous_call_found"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["import_winreg"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1562.002": {
+      "id": "T1562.002",
+      "name": "Disable Windows Event Logging",
+      "tactic": "TA0005 - Defense Evasion",
+      "severity": "HIGH",
+      "description": "Adversaries may disable logging to hide their activity.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_source": 0,
+          "max_source_weight": 0
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": ["process_exec"],
+          "optional_types": [],
+          "weight_per_sink": 25,
+          "max_sink_weight": 35
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["subprocess.run", "os.system"],
+          "weight_per_call": 20,
+          "max_dangerous_call_weight": 30
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["subprocess"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["Anti-Forensics — log/history file reference"],
+          "weight_per_finding": 20,
+          "max_vulnerability_weight": 30
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": ["process_calls", "anti_forensics_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 25
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate log rotation",
+            "condition": "file_path_contains 'logrotate' OR file_path_contains 'log'",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.0,
+          "transform": 0.0,
+          "sink": 0.25,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.20,
+          "import": 0.05,
+          "vulnerability": 0.20,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.30
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["vulnerability_found AND process_call_with_logging_command"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["vulnerability_found"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1041": {
+      "id": "T1041",
+      "name": "Exfiltration Over C2 Channel",
+      "tactic": "TA0010 - Exfiltration",
+      "severity": "HIGH",
+      "description": "Adversaries may exfiltrate data over a command and control channel.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": ["file_read", "env_var", "credential", "user_input"],
+          "optional_types": [],
+          "weight_per_source": 20,
+          "max_source_weight": 30
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": ["base64_encode", "zlib_compress", "encode", "json_serialize"],
+          "weight_per_transform": 10,
+          "max_transform_weight": 20
+        },
+        "sink_requirements": {
+          "required_types": ["network_send"],
+          "optional_types": [],
+          "weight_per_sink": 35,
+          "max_sink_weight": 45
+        },
+        "flow_signatures": [
+          {
+            "name": "file_to_network",
+            "signature": ["file_read", "network_send"],
+            "score_bonus": 25
+          },
+          {
+            "name": "env_to_network",
+            "signature": ["env_var", "network_send"],
+            "score_bonus": 25
+          }
+        ],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["requests.post", "requests.put", "socket.send", "urllib.request.urlopen"],
+          "weight_per_call": 20,
+          "max_dangerous_call_weight": 30
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["requests", "socket"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": ["Base64 encode on env data", "Zlib compress on env data"],
+          "weight_per_obfuscation": 10,
+          "max_obfuscation_weight": 15
+        },
+        "behavior_feature_requirements": {
+          "required": ["network_calls"],
+          "optional": ["file_read_calls", "credential_access_calls", "obfuscation_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 25
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate cloud upload",
+            "condition": "destination_known_cloud AND uses_sdk_authentication",
+            "deduction": 35
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.20,
+          "transform": 0.10,
+          "sink": 0.30,
+          "flow_bonus": 0.10,
+          "dangerous_call": 0.10,
+          "import": 0.05,
+          "vulnerability": 0.0,
+          "obfuscation": 0.05,
+          "behavior_feature": 0.10
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["source_found AND sink_network_send AND flow_bonus"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["source_found AND sink_network_send"] },
+          "LOW": { "min_score": 50, "additional_conditions": ["sink_network_send"] }
+        }
+      }
+    },
+
+    "T1567.002": {
+      "id": "T1567.002",
+      "name": "Exfiltration Over Web Service (HTTP POST)",
+      "tactic": "TA0010 - Exfiltration",
+      "severity": "HIGH",
+      "description": "Adversaries may exfiltrate data via HTTP POST.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": ["file_read", "env_var", "credential"],
+          "optional_types": ["user_input"],
+          "weight_per_source": 20,
+          "max_source_weight": 30
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": ["base64_encode", "zlib_compress", "json_serialize"],
+          "weight_per_transform": 10,
+          "max_transform_weight": 20
+        },
+        "sink_requirements": {
+          "required_types": ["network_send"],
+          "optional_types": [],
+          "weight_per_sink": 35,
+          "max_sink_weight": 45,
+          "context_bonus": {
+            "external_destination": 15,
+            "known_cloud_endpoint": -20
+          },
+          "argument_patterns": {
+            "network_send": {
+              "data": 10,
+              "json": 5,
+              "files": 8
+            }
+          }
+        },
+        "flow_signatures": [
+          {
+            "name": "data_to_http_post",
+            "signature": ["env_var", "network_send"],
+            "score_bonus": 25
+          }
+        ],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["requests.post", "httpx.post", "aiohttp.ClientSession.post"],
+          "weight_per_call": 25,
+          "max_dangerous_call_weight": 35
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["requests", "httpx", "aiohttp"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": ["Base64 encode on env data", "Zlib compress on env data"],
+          "weight_per_obfuscation": 10,
+          "max_obfuscation_weight": 15
+        },
+        "behavior_feature_requirements": {
+          "required": ["network_calls"],
+          "optional": ["obfuscation_calls", "file_read_calls", "credential_access_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 25
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate API calls",
+            "condition": "destination_known_cloud AND uses_authentication_header",
+            "deduction": 30
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.20,
+          "transform": 0.10,
+          "sink": 0.30,
+          "flow_bonus": 0.10,
+          "dangerous_call": 0.15,
+          "import": 0.05,
+          "vulnerability": 0.0,
+          "obfuscation": 0.10,
+          "behavior_feature": 0.10
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["source_found AND sink_requests_post"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["sink_requests_post"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1048.002": {
+      "id": "T1048.002",
+      "name": "Exfiltration Over Alternative Protocol (FTP)",
+      "tactic": "TA0010 - Exfiltration",
+      "severity": "MEDIUM",
+      "description": "Adversaries may exfiltrate data over FTP.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": ["file_read"],
+          "optional_types": ["env_var", "credential"],
+          "weight_per_source": 15,
+          "max_source_weight": 20
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": ["network_send"],
+          "optional_types": [],
+          "weight_per_sink": 25,
+          "max_sink_weight": 35
+        },
+        "flow_signatures": [
+          {
+            "name": "file_to_ftp",
+            "signature": ["file_read", "network_send"],
+            "score_bonus": 20
+          }
+        ],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["ftplib.FTP.storbinary", "ftplib.FTP.storlines", "ftplib.FTP.mkd", "ftplib.FTP.rename"],
+          "weight_per_call": 25,
+          "max_dangerous_call_weight": 35
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["ftplib"],
+          "weight_per_import": 20,
+          "max_import_weight": 25
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": ["network_calls"],
+          "optional": ["file_read_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate FTP client",
+            "condition": "file_path_contains 'ftp' OR file_path_contains 'upload'",
+            "deduction": 20
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.15,
+          "transform": 0.0,
+          "sink": 0.25,
+          "flow_bonus": 0.10,
+          "dangerous_call": 0.25,
+          "import": 0.20,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.10
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["dangerous_call_found AND import_ftplib"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["import_ftplib"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1048.003": {
+      "id": "T1048.003",
+      "name": "Exfiltration Over Email (SMTP)",
+      "tactic": "TA0010 - Exfiltration",
+      "severity": "HIGH",
+      "description": "Adversaries may exfiltrate data over SMTP.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": ["file_read", "env_var", "credential"],
+          "optional_types": ["user_input"],
+          "weight_per_source": 15,
+          "max_source_weight": 20
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": ["base64_encode", "json_serialize"],
+          "weight_per_transform": 5,
+          "max_transform_weight": 10
+        },
+        "sink_requirements": {
+          "required_types": ["network_send"],
+          "optional_types": [],
+          "weight_per_sink": 30,
+          "max_sink_weight": 40
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["smtplib.SMTP.sendmail", "smtplib.SMTP_SSL.sendmail"],
+          "weight_per_call": 30,
+          "max_dangerous_call_weight": 40
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["smtplib", "email"],
+          "weight_per_import": 20,
+          "max_import_weight": 25
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": ["network_calls"],
+          "optional": ["file_read_calls", "credential_access_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate email app",
+            "condition": "file_path_contains 'email' OR file_path_contains 'notification'",
+            "deduction": 20
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.15,
+          "transform": 0.05,
+          "sink": 0.30,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.30,
+          "import": 0.20,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.10
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["dangerous_call_found"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["import_smtplib"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1486": {
+      "id": "T1486",
+      "name": "Data Encrypted for Impact (Ransomware)",
+      "tactic": "TA0040 - Impact",
+      "severity": "CRITICAL",
+      "description": "Adversaries may encrypt data to disrupt availability or demand ransom.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": ["file_read"],
+          "optional_types": ["env_var", "user_input"],
+          "weight_per_source": 15,
+          "max_source_weight": 20
+        },
+        "transform_requirements": {
+          "required_types": ["encrypt"],
+          "optional_types": ["base64_encode", "zlib_compress"],
+          "weight_per_transform": 25,
+          "max_transform_weight": 35
+        },
+        "sink_requirements": {
+          "required_types": ["file_write"],
+          "optional_types": ["network_send"],
+          "weight_per_sink": 30,
+          "max_sink_weight": 40
+        },
+        "flow_signatures": [
+          {
+            "name": "encrypt_and_write",
+            "signature": ["file_read", "encrypt", "file_write"],
+            "score_bonus": 40
+          },
+          {
+            "name": "encrypt_and_delete",
+            "signature": ["file_read", "encrypt", "file_write", "file_delete"],
+            "score_bonus": 50
+          }
+        ],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["cryptography.fernet.Fernet.encrypt", "crypto.Cipher.AES.new", "Crypto.Cipher.AES.new", "nacl.secret.SecretBox"],
+          "weight_per_call": 30,
+          "max_dangerous_call_weight": 45
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["cryptography", "Crypto", "nacl"],
+          "weight_per_import": 20,
+          "max_import_weight": 25
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": ["ransomware_calls"],
+          "optional": ["file_read_calls", "file_write_calls", "file_delete_calls"],
+          "weight_per_feature": 20,
+          "max_feature_weight": 30
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate encryption in security apps",
+            "condition": "import_gnupg OR import_pgp",
+            "deduction": 30
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.10,
+          "transform": 0.20,
+          "sink": 0.20,
+          "flow_bonus": 0.15,
+          "dangerous_call": 0.15,
+          "import": 0.10,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.10
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["encrypt_flow AND file_delete"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["encrypt_flow"] },
+          "LOW": { "min_score": 50, "additional_conditions": ["dangerous_call_or_import"] }
+        }
+      }
+    },
+
+    "T1490": {
+      "id": "T1490",
+      "name": "Inhibit System Recovery (Delete Backups)",
+      "tactic": "TA0040 - Impact",
+      "severity": "CRITICAL",
+      "description": "Adversaries may delete or disable system recovery mechanisms.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": ["user_input"],
+          "weight_per_source": 10,
+          "max_source_weight": 15
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": ["process_exec", "file_delete"],
+          "optional_types": [],
+          "weight_per_sink": 30,
+          "max_sink_weight": 40
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["subprocess.run", "os.system", "os.remove", "shutil.rmtree"],
+          "weight_per_call": 25,
+          "max_dangerous_call_weight": 35
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["subprocess", "os", "shutil"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["Anti-Forensics — recursive delete", "Anti-Forensics — log/history file reference"],
+          "weight_per_finding": 15,
+          "max_vulnerability_weight": 20
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": ["process_calls", "file_delete_calls", "anti_forensics_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 25
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate backup cleanup",
+            "condition": "file_path_contains 'backup' AND file_path_contains 'cleanup'",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.05,
+          "transform": 0.0,
+          "sink": 0.30,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.25,
+          "import": 0.05,
+          "vulnerability": 0.10,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.25
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["sink_process_exec AND vulnerability_found"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["sink_file_delete"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1485": {
+      "id": "T1485",
+      "name": "Data Destruction",
+      "tactic": "TA0040 - Impact",
+      "severity": "CRITICAL",
+      "description": "Adversaries may destroy data for impact.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": ["file_read"],
+          "optional_types": [],
+          "weight_per_source": 10,
+          "max_source_weight": 15
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": ["file_delete"],
+          "optional_types": ["file_write"],
+          "weight_per_sink": 35,
+          "max_sink_weight": 45
+        },
+        "flow_signatures": [
+          {
+            "name": "read_then_delete",
+            "signature": ["file_read", "file_delete"],
+            "score_bonus": 25
+          }
+        ],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["os.remove", "os.unlink", "shutil.rmtree", "os.rmdir"],
+          "weight_per_call": 30,
+          "max_dangerous_call_weight": 45
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["os", "shutil"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["Anti-Forensics — recursive delete"],
+          "weight_per_finding": 15,
+          "max_vulnerability_weight": 20
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": ["file_delete_calls"],
+          "optional": ["file_read_calls"],
+          "weight_per_feature": 20,
+          "max_feature_weight": 30
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate file cleanup",
+            "condition": "file_path_contains 'temp' OR file_path_contains 'cache'",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.10,
+          "transform": 0.0,
+          "sink": 0.35,
+          "flow_bonus": 0.10,
+          "dangerous_call": 0.25,
+          "import": 0.05,
+          "vulnerability": 0.05,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.10
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["multiple_deletions"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["file_delete_call"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1105": {
+      "id": "T1105",
+      "name": "Ingress Tool Transfer",
+      "tactic": "TA0011 - Command and Control",
+      "severity": "HIGH",
+      "description": "Adversaries may download tools from C2 servers.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": ["network_recv"],
+          "optional_types": [],
+          "weight_per_source": 25,
+          "max_source_weight": 30
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": ["base64_decode", "zlib_decompress", "decode"],
+          "weight_per_transform": 10,
+          "max_transform_weight": 15
+        },
+        "sink_requirements": {
+          "required_types": ["file_write", "process_exec", "eval_exec"],
+          "optional_types": [],
+          "weight_per_sink": 30,
+          "max_sink_weight": 40
+        },
+        "flow_signatures": [
+          {
+            "name": "download_to_exec",
+            "signature": ["network_recv", "eval_exec"],
+            "score_bonus": 30
+          }
+        ],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["requests.get", "urllib.request.urlretrieve", "urllib.request.urlopen"],
+          "weight_per_call": 20,
+          "max_dangerous_call_weight": 30
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["requests", "urllib"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": ["network_receive_calls"],
+          "optional": ["file_write_calls", "process_calls", "eval_exec_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 25
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate package download",
+            "condition": "import_pip OR import_setuptools",
+            "deduction": 30
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.20,
+          "transform": 0.05,
+          "sink": 0.30,
+          "flow_bonus": 0.10,
+          "dangerous_call": 0.10,
+          "import": 0.05,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.20
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["network_recv AND sink_file_write"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["network_recv"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1071.001": {
+      "id": "T1071.001",
+      "name": "Application Layer Protocol (HTTP/HTTPS)",
+      "tactic": "TA0011 - Command and Control",
+      "severity": "MEDIUM",
+      "description": "Adversaries may use HTTP/HTTPS for C2 communication.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_source": 0,
+          "max_source_weight": 0
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": ["base64_encode", "json_serialize"],
+          "weight_per_transform": 5,
+          "max_transform_weight": 10
+        },
+        "sink_requirements": {
+          "required_types": ["network_send"],
+          "optional_types": ["network_recv"],
+          "weight_per_sink": 25,
+          "max_sink_weight": 35
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["requests.get", "requests.post", "requests.put", "requests.delete", "urllib.request.urlopen"],
+          "weight_per_call": 15,
+          "max_dangerous_call_weight": 25
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["requests", "urllib", "httpx"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": ["network_calls"],
+          "optional": ["obfuscation_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate web client",
+            "condition": "destination_known_cloud OR uses_oauth",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.0,
+          "transform": 0.05,
+          "sink": 0.30,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.25,
+          "import": 0.10,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.30
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["network_calls_high_frequency OR external_destination"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["network_calls"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1071.004": {
+      "id": "T1071.004",
+      "name": "Application Layer Protocol (DNS)",
+      "tactic": "TA0011 - Command and Control",
+      "severity": "MEDIUM",
+      "description": "Adversaries may use DNS for C2.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_source": 0,
+          "max_source_weight": 0
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": ["network_send"],
+          "optional_types": [],
+          "weight_per_sink": 25,
+          "max_sink_weight": 35
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["dns.resolver.query", "dns.resolver.resolve", "socket.gethostbyname", "socket.getaddrinfo"],
+          "weight_per_call": 20,
+          "max_dangerous_call_weight": 30
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["dns", "socket"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": ["network_calls"],
+          "optional": ["recon_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate DNS resolution",
+            "condition": "uses_dns_in_http_client",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.0,
+          "transform": 0.0,
+          "sink": 0.30,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.30,
+          "import": 0.10,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.30
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["dangerous_call_found AND external_destination"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["dangerous_call_found"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1132.001": {
+      "id": "T1132.001",
+      "name": "Data Encoding (Base64)",
+      "tactic": "TA0011 - Command and Control",
+      "severity": "LOW",
+      "description": "Adversaries may encode data in Base64 for C2.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": ["file_read", "env_var", "user_input"],
+          "weight_per_source": 5,
+          "max_source_weight": 10
+        },
+        "transform_requirements": {
+          "required_types": ["base64_encode"],
+          "optional_types": ["base64_decode"],
+          "weight_per_transform": 15,
+          "max_transform_weight": 25
+        },
+        "sink_requirements": {
+          "required_types": ["network_send"],
+          "optional_types": ["file_write"],
+          "weight_per_sink": 15,
+          "max_sink_weight": 20
+        },
+        "flow_signatures": [
+          {
+            "name": "base64_to_network",
+            "signature": ["base64_encode", "network_send"],
+            "score_bonus": 15
+          }
+        ],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["base64.b64encode", "base64.encodebytes"],
+          "weight_per_call": 15,
+          "max_dangerous_call_weight": 25
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["base64"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": ["Base64 encode on env data"],
+          "weight_per_obfuscation": 10,
+          "max_obfuscation_weight": 15
+        },
+        "behavior_feature_requirements": {
+          "required": ["obfuscation_calls"],
+          "optional": ["network_calls"],
+          "weight_per_feature": 10,
+          "max_feature_weight": 15
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate Base64 usage",
+            "condition": "uses_base64_for_json AND destination_known_cloud",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.05,
+          "transform": 0.20,
+          "sink": 0.15,
+          "flow_bonus": 0.10,
+          "dangerous_call": 0.15,
+          "import": 0.05,
+          "vulnerability": 0.0,
+          "obfuscation": 0.15,
+          "behavior_feature": 0.15
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["base64_and_network"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["base64_call"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1132.002": {
+      "id": "T1132.002",
+      "name": "Data Encoding (Compression)",
+      "tactic": "TA0011 - Command and Control",
+      "severity": "LOW",
+      "description": "Adversaries may compress data for C2.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": ["file_read", "env_var"],
+          "weight_per_source": 5,
+          "max_source_weight": 10
+        },
+        "transform_requirements": {
+          "required_types": ["zlib_compress", "gzip_compress"],
+          "optional_types": ["lzma_compress", "bz2_compress"],
+          "weight_per_transform": 15,
+          "max_transform_weight": 25
+        },
+        "sink_requirements": {
+          "required_types": ["network_send"],
+          "optional_types": ["file_write"],
+          "weight_per_sink": 15,
+          "max_sink_weight": 20
+        },
+        "flow_signatures": [
+          {
+            "name": "compress_to_network",
+            "signature": ["zlib_compress", "network_send"],
+            "score_bonus": 15
+          }
+        ],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["zlib.compress", "gzip.compress", "lzma.compress", "bz2.compress"],
+          "weight_per_call": 15,
+          "max_dangerous_call_weight": 25
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["zlib", "gzip", "lzma", "bz2"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": ["Zlib compress on env data"],
+          "weight_per_obfuscation": 10,
+          "max_obfuscation_weight": 15
+        },
+        "behavior_feature_requirements": {
+          "required": ["obfuscation_calls"],
+          "optional": ["network_calls"],
+          "weight_per_feature": 10,
+          "max_feature_weight": 15
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate compression",
+            "condition": "uses_compression_for_file_transfer AND destination_known_cloud",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.05,
+          "transform": 0.20,
+          "sink": 0.15,
+          "flow_bonus": 0.10,
+          "dangerous_call": 0.15,
+          "import": 0.05,
+          "vulnerability": 0.0,
+          "obfuscation": 0.15,
+          "behavior_feature": 0.15
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["compress_and_network"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["compress_call"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1115": {
+      "id": "T1115",
+      "name": "Clipboard Data Collection",
+      "tactic": "TA0009 - Collection",
+      "severity": "MEDIUM",
+      "description": "Adversaries may collect clipboard data.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": ["user_input"],
+          "weight_per_source": 5,
+          "max_source_weight": 10
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": [],
+          "optional_types": ["network_send", "file_write"],
+          "weight_per_sink": 15,
+          "max_sink_weight": 20
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["pyperclip.paste", "pyperclip.copy"],
+          "weight_per_call": 25,
+          "max_dangerous_call_weight": 35
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["pyperclip"],
+          "weight_per_import": 20,
+          "max_import_weight": 25
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_feature": 0,
+          "max_feature_weight": 0
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate clipboard usage",
+            "condition": "file_path_contains 'clipboard' OR file_path_contains 'copy'",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.05,
+          "transform": 0.0,
+          "sink": 0.15,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.35,
+          "import": 0.25,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.0
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["import_pyperclip"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": [] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1113": {
+      "id": "T1113",
+      "name": "Screen Capture",
+      "tactic": "TA0009 - Collection",
+      "severity": "HIGH",
+      "description": "Adversaries may take screenshots.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": ["user_input"],
+          "weight_per_source": 5,
+          "max_source_weight": 10
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": ["file_write"],
+          "optional_types": ["network_send"],
+          "weight_per_sink": 20,
+          "max_sink_weight": 30
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["PIL.ImageGrab.grab", "mss.mss.grab", "pyautogui.screenshot", "win32gui.GetWindowDC"],
+          "weight_per_call": 30,
+          "max_dangerous_call_weight": 40
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["PIL", "mss", "pyautogui", "win32gui"],
+          "weight_per_import": 20,
+          "max_import_weight": 25
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_feature": 0,
+          "max_feature_weight": 0
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate screenshot utility",
+            "condition": "file_path_contains 'screenshot' OR file_path_contains 'capture'",
+            "deduction": 20
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.05,
+          "transform": 0.0,
+          "sink": 0.20,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.35,
+          "import": 0.20,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.0
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["dangerous_call_found AND import_PIL"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["import_PIL OR import_mss"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1005": {
+      "id": "T1005",
+      "name": "Data from Local System",
+      "tactic": "TA0009 - Collection",
+      "severity": "HIGH",
+      "description": "Adversaries may collect data from local files.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": ["file_read"],
+          "optional_types": ["env_var", "credential"],
+          "weight_per_source": 25,
+          "max_source_weight": 35
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": ["base64_encode", "zlib_compress", "json_serialize"],
+          "weight_per_transform": 10,
+          "max_transform_weight": 15
+        },
+        "sink_requirements": {
+          "required_types": ["network_send", "file_write"],
+          "optional_types": ["eval_exec"],
+          "weight_per_sink": 25,
+          "max_sink_weight": 35
+        },
+        "flow_signatures": [
+          {
+            "name": "file_to_network",
+            "signature": ["file_read", "network_send"],
+            "score_bonus": 25
+          }
+        ],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["open", "file.read", "pathlib.Path.read_text"],
+          "weight_per_call": 15,
+          "max_dangerous_call_weight": 20
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["pathlib"],
+          "weight_per_import": 5,
+          "max_import_weight": 10
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": ["file_read_calls"],
+          "optional": ["network_calls", "file_write_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 25
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate file reading",
+            "condition": "file_path_contains 'config' OR file_path_contains 'data'",
+            "deduction": 20
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.25,
+          "transform": 0.10,
+          "sink": 0.25,
+          "flow_bonus": 0.10,
+          "dangerous_call": 0.10,
+          "import": 0.05,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.15
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["source_file_read AND sink_network"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["source_file_read"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1074.001": {
+      "id": "T1074.001",
+      "name": "Data Staged (Compression)",
+      "tactic": "TA0009 - Collection",
+      "severity": "MEDIUM",
+      "description": "Adversaries may stage data by compressing it.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": ["file_read"],
+          "optional_types": ["env_var", "credential"],
+          "weight_per_source": 10,
+          "max_source_weight": 15
+        },
+        "transform_requirements": {
+          "required_types": ["zlib_compress", "gzip_compress"],
+          "optional_types": ["tar_compress", "zip_compress"],
+          "weight_per_transform": 15,
+          "max_transform_weight": 25
+        },
+        "sink_requirements": {
+          "required_types": ["file_write"],
+          "optional_types": ["network_send"],
+          "weight_per_sink": 20,
+          "max_sink_weight": 30
+        },
+        "flow_signatures": [
+          {
+            "name": "compress_and_write",
+            "signature": ["file_read", "zlib_compress", "file_write"],
+            "score_bonus": 20
+          }
+        ],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["zlib.compress", "gzip.compress", "zipfile.ZipFile.write", "tarfile.TarFile.add", "shutil.make_archive"],
+          "weight_per_call": 20,
+          "max_dangerous_call_weight": 30
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["zlib", "gzip", "zipfile", "tarfile", "shutil"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": ["Zlib compress on env data"],
+          "weight_per_obfuscation": 10,
+          "max_obfuscation_weight": 15
+        },
+        "behavior_feature_requirements": {
+          "required": ["file_read_calls", "file_write_calls"],
+          "optional": ["obfuscation_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate archiving",
+            "condition": "file_path_contains 'archive' OR file_path_contains 'backup'",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.10,
+          "transform": 0.20,
+          "sink": 0.20,
+          "flow_bonus": 0.10,
+          "dangerous_call": 0.15,
+          "import": 0.05,
+          "vulnerability": 0.0,
+          "obfuscation": 0.10,
+          "behavior_feature": 0.10
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["compress_and_write_flow"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["compress_call"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1057": {
+      "id": "T1057",
+      "name": "Process Discovery",
+      "tactic": "TA0007 - Discovery",
+      "severity": "MEDIUM",
+      "description": "Adversaries may enumerate running processes.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_source": 0,
+          "max_source_weight": 0
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": [],
+          "optional_types": ["file_write", "network_send"],
+          "weight_per_sink": 10,
+          "max_sink_weight": 15
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["psutil.pids", "psutil.Process", "psutil.process_iter", "os.getpid", "os.getppid"],
+          "weight_per_call": 20,
+          "max_dangerous_call_weight": 35
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["psutil"],
+          "weight_per_import": 20,
+          "max_import_weight": 25
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": ["process_calls", "recon_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 25
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate process monitoring",
+            "condition": "file_path_contains 'monitor' OR file_path_contains 'task'",
+            "deduction": 20
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.0,
+          "transform": 0.0,
+          "sink": 0.10,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.40,
+          "import": 0.25,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.25
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["dangerous_call_found"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["import_psutil"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1518": {
+      "id": "T1518",
+      "name": "Software Discovery",
+      "tactic": "TA0007 - Discovery",
+      "severity": "LOW",
+      "description": "Adversaries may enumerate installed software.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_source": 0,
+          "max_source_weight": 0
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": [],
+          "optional_types": ["file_write", "network_send"],
+          "weight_per_sink": 10,
+          "max_sink_weight": 15
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["importlib.metadata.distribution", "pkg_resources.working_set", "pip.list"],
+          "weight_per_call": 15,
+          "max_dangerous_call_weight": 25
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["importlib.metadata", "pkg_resources"],
+          "weight_per_import": 15,
+          "max_import_weight": 20
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": ["recon_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate dependency listing",
+            "condition": "file_path_contains 'requirements' OR file_path_contains 'setup'",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.0,
+          "transform": 0.0,
+          "sink": 0.10,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.30,
+          "import": 0.25,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.35
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["dangerous_call_found"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["import_importlib"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1033": {
+      "id": "T1033",
+      "name": "System Owner/User Discovery",
+      "tactic": "TA0007 - Discovery",
+      "severity": "LOW",
+      "description": "Adversaries may discover the system owner or current user.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_source": 0,
+          "max_source_weight": 0
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": [],
+          "optional_types": ["file_write", "network_send"],
+          "weight_per_sink": 10,
+          "max_sink_weight": 15
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["os.getlogin", "getpass.getuser", "pwd.getpwuid", "win32api.GetUserName"],
+          "weight_per_call": 15,
+          "max_dangerous_call_weight": 25
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["getpass", "pwd", "win32api"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": ["recon_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate user info in logging",
+            "condition": "import_logging AND call_in_logging_context",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.0,
+          "transform": 0.0,
+          "sink": 0.10,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.35,
+          "import": 0.15,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.40
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["dangerous_call_found"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["call_found"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1012": {
+      "id": "T1012",
+      "name": "Query Registry",
+      "tactic": "TA0007 - Discovery",
+      "severity": "LOW",
+      "description": "Adversaries may query the Windows Registry.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_source": 0,
+          "max_source_weight": 0
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": [],
+          "optional_types": ["file_write", "network_send"],
+          "weight_per_sink": 10,
+          "max_sink_weight": 15
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["winreg.OpenKey", "winreg.QueryValueEx", "winreg.EnumKey"],
+          "weight_per_call": 20,
+          "max_dangerous_call_weight": 30
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["winreg"],
+          "weight_per_import": 20,
+          "max_import_weight": 25
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": [],
+          "optional": ["recon_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate Windows config",
+            "condition": "file_path_contains 'win' AND import_winreg",
+            "deduction": 20
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.0,
+          "transform": 0.0,
+          "sink": 0.10,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.40,
+          "import": 0.25,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.25
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["dangerous_call_found"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["import_winreg"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1021.004": {
+      "id": "T1021.004",
+      "name": "Remote Services (SSH)",
+      "tactic": "TA0008 - Lateral Movement",
+      "severity": "HIGH",
+      "description": "Adversaries may use SSH for lateral movement.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": ["credential"],
+          "weight_per_source": 15,
+          "max_source_weight": 20
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": ["network_send", "process_exec"],
+          "optional_types": [],
+          "weight_per_sink": 20,
+          "max_sink_weight": 30
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["paramiko.SSHClient.exec_command", "paramiko.SSHClient.connect", "paramiko.Transport.connect", "subprocess.run"],
+          "weight_per_call": 25,
+          "max_dangerous_call_weight": 35
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["paramiko"],
+          "weight_per_import": 20,
+          "max_import_weight": 25
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": ["network_calls"],
+          "optional": ["process_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate SSH client",
+            "condition": "file_path_contains 'ssh' OR file_path_contains 'remote'",
+            "deduction": 20
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.10,
+          "transform": 0.0,
+          "sink": 0.25,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.25,
+          "import": 0.20,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.20
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["import_paramiko AND sink_process_exec"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["import_paramiko"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1021.002": {
+      "id": "T1021.002",
+      "name": "Remote Services (SMB/Windows Admin)",
+      "tactic": "TA0008 - Lateral Movement",
+      "severity": "HIGH",
+      "description": "Adversaries may use Windows admin shares for lateral movement.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": ["credential"],
+          "weight_per_source": 15,
+          "max_source_weight": 20
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": ["network_send", "process_exec"],
+          "optional_types": [],
+          "weight_per_sink": 20,
+          "max_sink_weight": 30
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["win32com.client", "win32security", "win32net"],
+          "weight_per_call": 25,
+          "max_dangerous_call_weight": 35
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["win32com", "win32security", "win32net"],
+          "weight_per_import": 20,
+          "max_import_weight": 25
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": ["network_calls"],
+          "optional": ["process_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate Windows admin",
+            "condition": "file_path_contains 'admin' AND import_win32",
+            "deduction": 20
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.10,
+          "transform": 0.0,
+          "sink": 0.25,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.25,
+          "import": 0.20,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.20
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["import_win32 AND sink_process_exec"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["import_win32"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1548.003": {
+      "id": "T1548.003",
+      "name": "Abuse Elevation Control Mechanism (sudo)",
+      "tactic": "TA0004 - Privilege Escalation",
+      "severity": "HIGH",
+      "description": "Adversaries may abuse sudo to gain elevated privileges.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": ["user_input"],
+          "weight_per_source": 10,
+          "max_source_weight": 15
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": ["process_exec"],
+          "optional_types": [],
+          "weight_per_sink": 30,
+          "max_sink_weight": 40
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["subprocess.run", "os.system"],
+          "weight_per_call": 20,
+          "max_dangerous_call_weight": 30
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["subprocess", "os"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": ["process_calls"],
+          "optional": [],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate system administration",
+            "condition": "file_path_contains 'admin' OR file_path_contains 'sys'",
+            "deduction": 25
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.10,
+          "transform": 0.0,
+          "sink": 0.30,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.25,
+          "import": 0.10,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.25
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["process_call_with_sudo"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["process_call"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1548.001": {
+      "id": "T1548.001",
+      "name": "Setuid and Setgid",
+      "tactic": "TA0004 - Privilege Escalation",
+      "severity": "MEDIUM",
+      "description": "Adversaries may exploit setuid/setgid binaries.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_source": 0,
+          "max_source_weight": 0
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": [],
+          "weight_per_transform": 0,
+          "max_transform_weight": 0
+        },
+        "sink_requirements": {
+          "required_types": ["process_exec"],
+          "optional_types": [],
+          "weight_per_sink": 25,
+          "max_sink_weight": 35
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["os.setuid", "os.setgid", "os.seteuid", "os.setegid"],
+          "weight_per_call": 30,
+          "max_dangerous_call_weight": 40
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["os"],
+          "weight_per_import": 10,
+          "max_import_weight": 15
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_finding": 0,
+          "max_vulnerability_weight": 0
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": ["process_calls"],
+          "optional": [],
+          "weight_per_feature": 15,
+          "max_feature_weight": 20
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate privilege drop",
+            "condition": "uses_setuid_to_drop_privileges",
+            "deduction": 30
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.0,
+          "transform": 0.0,
+          "sink": 0.25,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.40,
+          "import": 0.10,
+          "vulnerability": 0.0,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.25
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["dangerous_call_found"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": [] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    },
+
+    "T1078": {
+      "id": "T1078",
+      "name": "Valid Accounts",
+      "tactic": "TA0004 - Privilege Escalation",
+      "severity": "HIGH",
+      "description": "Adversaries may use valid accounts to gain initial access or escalate.",
+      "detection_rules": {
+        "source_requirements": {
+          "required_types": ["credential"],
+          "optional_types": ["env_var"],
+          "weight_per_source": 20,
+          "max_source_weight": 30
+        },
+        "transform_requirements": {
+          "required_types": [],
+          "optional_types": ["base64_encode", "encode"],
+          "weight_per_transform": 10,
+          "max_transform_weight": 15
+        },
+        "sink_requirements": {
+          "required_types": ["network_send", "process_exec"],
+          "optional_types": [],
+          "weight_per_sink": 25,
+          "max_sink_weight": 35
+        },
+        "flow_signatures": [],
+        "dangerous_call_requirements": {
+          "required": [],
+          "optional": ["getpass.getpass", "os.getenv", "keyring.get_password"],
+          "weight_per_call": 20,
+          "max_dangerous_call_weight": 30
+        },
+        "import_requirements": {
+          "required": [],
+          "optional": ["getpass", "keyring"],
+          "weight_per_import": 15,
+          "max_import_weight": 20
+        },
+        "vulnerability_requirements": {
+          "required": [],
+          "optional": ["Hardcoded admin account", "Hardcoded password comparison"],
+          "weight_per_finding": 20,
+          "max_vulnerability_weight": 30
+        },
+        "obfuscation_requirements": {
+          "required": [],
+          "optional": [],
+          "weight_per_obfuscation": 0,
+          "max_obfuscation_weight": 0
+        },
+        "behavior_feature_requirements": {
+          "required": ["credential_access_calls"],
+          "optional": ["network_calls", "process_calls"],
+          "weight_per_feature": 15,
+          "max_feature_weight": 25
+        },
+        "exclusion_rules": [
+          {
+            "name": "Legitimate authentication flow",
+            "condition": "uses_oauth OR uses_jwt AND destination_known_cloud",
+            "deduction": 30
+          }
+        ]
+      },
+      "scoring": {
+        "weights": {
+          "source": 0.20,
+          "transform": 0.05,
+          "sink": 0.25,
+          "flow_bonus": 0.0,
+          "dangerous_call": 0.15,
+          "import": 0.10,
+          "vulnerability": 0.15,
+          "obfuscation": 0.0,
+          "behavior_feature": 0.10
+        },
+        "normalization": "weighted_sum",
+        "max_score": 100,
+        "min_detection_score": 60
+      },
+      "confidence": {
+        "levels": {
+          "HIGH": { "min_score": 80, "additional_conditions": ["credential_source AND sink_network"] },
+          "MEDIUM": { "min_score": 65, "additional_conditions": ["credential_source"] },
+          "LOW": { "min_score": 50, "additional_conditions": [] }
+        }
+      }
+    }
+
+  }
+}

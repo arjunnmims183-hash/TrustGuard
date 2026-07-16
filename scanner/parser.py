@@ -5,7 +5,7 @@ Just extracts raw data. Security checks will be added later.
 
 import ast
 import os
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 MAX_SOURCE_SIZE = 10_000_000
 
@@ -15,12 +15,18 @@ class Parser:
         self.filepath = filepath
         self.tree = None
         self.source = None
+        # For alias resolution
+        self.alias_map = {}          # variable_name -> resolved_module (e.g., "my_os" -> "os")
+        self.variable_values = {}    # variable_name -> constant_value (e.g., "module_name" -> "os")
 
     def parse(self) -> Dict[str, Any]:
         """Parse file and return raw data."""
         try:
             self.source = self._read_file()
             self.tree = ast.parse(self.source, filename=self.filepath)
+
+            # Build alias map *before* extracting calls so that calls can be resolved
+            self._build_alias_map(self.tree)
 
             return {
                 "file": self.filepath,
@@ -41,10 +47,33 @@ class Parser:
                 "conditionals": self._get_conditionals(),
                 "try_except": self._get_try_except(),
                 "variables": self._get_variables(),
+                "alias_map": self.alias_map,   # optional, for debugging
                 "error": None,
             }
         except Exception as e:
             return {"file": self.filepath, "error": str(e), **self._empty_result()}
+
+    def _empty_result(self) -> Dict[str, Any]:
+        return {
+            "lines": 0,
+            "imports": [],
+            "imports_detailed": [],
+            "calls": [],
+            "calls_detailed": [],
+            "strings": [],
+            "assignments": [],
+            "functions": [],
+            "classes": [],
+            "comments": [],
+            "constants": [],
+            "decorators": [],
+            "docstrings": [],
+            "loops": [],
+            "conditionals": [],
+            "try_except": [],
+            "variables": [],
+            "alias_map": {},
+        }
 
     def _read_file(self) -> str:
         """Read file with encoding detection."""
@@ -62,6 +91,90 @@ class Parser:
             except UnicodeDecodeError:
                 continue
         raise UnicodeDecodeError(f"Cannot decode: {self.filepath}")
+
+    # ------------------------------------------------------------------
+    # New methods for alias resolution
+    # ------------------------------------------------------------------
+
+    def _eval_expr(self, node) -> Optional[str]:
+        """
+        Evaluate a constant expression (e.g., "o" + "s", variable references).
+        Returns the constant value if possible, else None.
+        """
+        if isinstance(node, ast.Constant):
+            return node.value if isinstance(node.value, str) else None
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left = self._eval_expr(node.left)
+            right = self._eval_expr(node.right)
+            if isinstance(left, str) and isinstance(right, str):
+                return left + right
+            return None
+        if isinstance(node, ast.Name):
+            # Look up variable value from previously assigned constants
+            return self.variable_values.get(node.id)
+        # Add more operations (e.g., multiplication) if needed
+        return None
+
+    def _build_alias_map(self, tree):
+        """
+        Walk the AST to find dynamic imports and constant assignments.
+        Populates self.alias_map and self.variable_values.
+        """
+        for node in ast.walk(tree):
+            # Track constant assignments (e.g., module_name = "o" + "s")
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        val = self._eval_expr(node.value)
+                        if val is not None:
+                            self.variable_values[target.id] = val
+
+            # Find dynamic imports: __import__(...) or importlib.import_module(...)
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and isinstance(node.value, ast.Call):
+                        call = node.value
+                        if self._is_dynamic_import(call):
+                            module_name = self._eval_expr(call.args[0]) if call.args else None
+                            if module_name and isinstance(module_name, str):
+                                self.alias_map[target.id] = module_name
+
+    def _is_dynamic_import(self, call_node) -> bool:
+        """Return True if call is __import__ or importlib.import_module."""
+        func = call_node.func
+        if isinstance(func, ast.Name) and func.id == '__import__':
+            return True
+        if isinstance(func, ast.Attribute):
+            if (isinstance(func.value, ast.Name) and func.value.id == 'importlib'
+                    and func.attr == 'import_module'):
+                return True
+        return False
+
+    def _resolve_call_name(self, node) -> str:
+        """
+        Resolve an AST node that represents a callable name (e.g., my_os.getenv -> os.getenv).
+        """
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            base = node.value
+            attr = node.attr
+            # Resolve base if it's a Name and in alias_map
+            if isinstance(base, ast.Name) and base.id in self.alias_map:
+                resolved_base = self.alias_map[base.id]
+                return f"{resolved_base}.{attr}"
+            # Otherwise, recursively resolve base (e.g., a.b.c)
+            resolved_base = self._resolve_call_name(base) if hasattr(base, 'id') or hasattr(base, 'value') else None
+            if resolved_base:
+                return f"{resolved_base}.{attr}"
+            # Fallback to unparse
+            return ast.unparse(node)
+        # Fallback for other types
+        return self._get_name(node)
+
+    # ------------------------------------------------------------------
+    # Existing methods (modified where needed)
+    # ------------------------------------------------------------------
 
     def _get_imports(self) -> List[str]:
         """Get all imported module names."""
@@ -96,29 +209,30 @@ class Parser:
         return imports
 
     def _get_calls(self) -> List[str]:
-        """Get all function/method call names."""
+        """Get all function/method call names, resolved for aliases."""
         calls = []
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Call):
-                name = self._get_name(node.func)
+                name = self._resolve_call_name(node.func)
                 if name and name not in {"", "None", "True", "False", "self", "cls"}:
                     calls.append(name)
         return calls
 
     def _get_calls_detailed(self) -> List[Dict[str, Any]]:
+        """Get detailed call info, with resolved names."""
         calls = []
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Call):
-                name = self._get_name(node.func)
+                name = self._resolve_call_name(node.func)
                 if name and name not in {"", "None", "True", "False", "self", "cls"}:
                     calls.append({
                         "name": name,
                         "line": node.lineno,
                         "arg_count": len(node.args),
                         "kw_count": len(node.keywords),
-                        "args": [self._get_name(a) for a in node.args],
+                        "args": [self._resolve_call_name(a) if isinstance(a, (ast.Name, ast.Attribute)) else self._get_name(a) for a in node.args],
                         "keywords": [
-                            {"arg": kw.arg, "value": self._get_name(kw.value)}
+                            {"arg": kw.arg, "value": self._resolve_call_name(kw.value) if isinstance(kw.value, (ast.Name, ast.Attribute)) else self._get_name(kw.value)}
                             for kw in node.keywords if kw.arg
                         ]
                     })
@@ -349,6 +463,7 @@ class Parser:
         return getattr(node, 'id', getattr(node, 'attr', getattr(node, 'name', str(node)[:30])))
 
 
-# parser = Parser(r'C:\Users\vijen\Downloads\TrustGuard\test_samples\credential_theft.py')
-# result = parser.parse()
-# print(result)
+#For testing
+#parser = Parser(r'C:\Users\naman\Mirror\Downloads\naman\MEITY\Project\trustguard_phase1+2\trustguard_v2&v3\test_samples\credential_theft.py')
+#esult = parser.parse()
+#print(result)

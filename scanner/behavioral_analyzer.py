@@ -1,7 +1,9 @@
 import json
+import re
 from typing import Dict, Any, Optional, List, Set, Tuple
 
 from scanner.io import import_json
+
 
 class BehaviorMappings:
     def __init__(self, json_path: Optional[str] = None):
@@ -14,7 +16,10 @@ class BehaviorMappings:
         self.transform_functions = flow_mappings.get("transform_functions", {})
         self.sink_functions = flow_mappings.get("sink_functions", {})
 
-        self.sink_call_desc = {name: info.get("description", "") for name, info in self.sink_functions.items()}
+        self.sink_call_desc = {
+            name: info.get("description", "")
+            for name, info in self.sink_functions.items()
+        }
         self._reset_analysis_state()
 
     def _reset_analysis_state(self):
@@ -38,35 +43,55 @@ class BehaviorMappings:
             categories[name] = set(info.get('calls', []))
         return categories
 
-    def get_category(self, call_name: str, categories: Dict[str, Set[str]]) -> Optional[str]:
+    # ------------------------------------------------------------------
+    # NEW: Multi‑label matching – returns ALL categories that contain the call
+    # ------------------------------------------------------------------
+    def get_categories(self, call_name: str, categories: Dict[str, Set[str]]) -> List[str]:
+        matched = []
         for cat, calls in categories.items():
             if call_name in calls:
-                return cat
-        return None
+                matched.append(cat)
+        return matched
 
+    # ------------------------------------------------------------------
+    # UPDATED: build_feature_vector uses multi‑label matching
+    # ------------------------------------------------------------------
     def build_feature_vector(self, parser_result: Dict[str, Any]) -> Dict[str, Any]:
         feature_vector = self._create_feature_vector()
         categories = self._extract_categories()
 
         for call in parser_result.get('calls_detailed', []):
             name = call.get('name', '')
+            line = call.get('line', 0)
             if not name:
                 continue
-            category = self.get_category(name, categories)
-            if category is None:
-                continue
-            entry = feature_vector[category]
-            entry["enabled"] = True
-            if name not in entry["calls"]:
-                entry["calls"].append(name)
-            entry["lines"].append(call.get('line', 0))
-            entry["details"].append({
-                "name": name,
-                "line": call.get('line', 0),
-                "args": call.get('args', []),
-                "keywords": call.get('keywords', [])  # now list of dicts
-            })
+
+            matched_categories = self.get_categories(name, categories)
+            for category in matched_categories:
+                entry = feature_vector[category]
+                entry["enabled"] = True
+
+                if name not in entry["calls"]:
+                    entry["calls"].append(name)
+
+                if line not in entry["lines"]:
+                    entry["lines"].append(line)
+
+                detail = {
+                    "name": name,
+                    "line": line,
+                    "args": call.get('args', []),
+                    "keywords": call.get('keywords', [])
+                }
+                # Avoid duplicate details (if the same call appears multiple times)
+                if detail not in entry["details"]:
+                    entry["details"].append(detail)
+
         return feature_vector
+
+    # ------------------------------------------------------------------
+    # The rest of the class stays exactly the same
+    # ------------------------------------------------------------------
 
     def _next_version(self, var: str) -> str:
         count = self.version_counter.get(var, 0) + 1
@@ -82,7 +107,7 @@ class BehaviorMappings:
     def _is_string_literal(self, rhs: str) -> bool:
         s = rhs.strip()
         return len(s) > 1 and (
-                s[0] in "'\"" or s[:2] in ("b'", 'b"')
+            s[0] in "'\"" or s[:2] in ("b'", 'b"')
         ) and s[-1] in "'\""
 
     def _is_inside_string(self, expr: str) -> bool:
@@ -401,9 +426,9 @@ class BehaviorMappings:
             "sink_arg_name": flow.get("sink_arg_name"),
             "source_var": flow.get("source_var").split("#")[0],
             "data_flow": " → ".join(
-                [source_info.get("type", "unknown")] +
-                [t.get("type", "unknown") for t in transforms_list] +
-                [sink_type]
+                [source_info.get("type", "unknown")]
+                + [t.get("type", "unknown") for t in transforms_list]
+                + [sink_type]
             )
         }
         return enriched
@@ -421,6 +446,7 @@ class BehaviorMappings:
                 "feature_vector": feature_vector
             }
         }
+
 
 # if __name__ == "__main__":
 #     b = BehaviorMappings()

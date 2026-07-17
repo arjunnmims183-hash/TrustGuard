@@ -83,11 +83,10 @@ class BehaviorMappings:
                     "args": call.get('args', []),
                     "keywords": call.get('keywords', [])
                 }
-                # Avoid duplicate details (if the same call appears multiple times)
                 if detail not in entry["details"]:
                     entry["details"].append(detail)
-
-        return feature_vector
+                    
+        return {k: v for k, v in feature_vector.items() if v.get("enabled")}
 
     # ------------------------------------------------------------------
     # The rest of the class stays exactly the same
@@ -448,9 +447,9 @@ class BehaviorMappings:
         }
 
 
-# if __name__ == "__main__":
-#     b = BehaviorMappings()
-#     import parser
-#     parser_result = parser.Parser(r'C:\Users\Acer\Downloads\TrustGuard\test_samples\credential_theft.py').parse()
-#     result = b.analyze_parser_result(parser_result)
-#     print(json.dumps(result, indent=2))
+if __name__ == "__main__":
+    b = BehaviorMappings()
+    import parser
+    parser_result = parser.Parser(r'C:\Users\Acer\Downloads\TrustGuard\test_samples\credential_theft.py').parse()
+    result = b.analyze_parser_result(parser_result)
+    print(json.dumps(result, indent=2))

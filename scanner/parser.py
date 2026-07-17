@@ -577,7 +577,7 @@ class Parser:
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Call):
                 name = self._resolve_call_name(node.func)
-                if name and name not in {"", "None", "True", "False", "self", "cls", "chr", "lambda"}:
+                if name and (name not in {"", "None", "True", "False", "self", "cls", "chr"} and not name.startswith("lambda")):
                     calls.append(name)
         return calls
 
@@ -586,7 +586,7 @@ class Parser:
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Call):
                 name = self._resolve_call_name(node.func)
-                if name and name not in {"", "None", "True", "False", "self", "cls", "chr", "lambda"}:
+                if name and (name not in {"", "None", "True", "False", "self", "cls", "chr"} and not name.startswith("lambda")):
                     line = node.lineno
                     resolved_args = []
                     for arg in node.args:

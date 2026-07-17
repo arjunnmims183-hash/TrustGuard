@@ -1,40 +1,49 @@
 from typing import Dict, List, Any, Optional
-
 from scanner.io import import_json
+
 
 class DangerousAPIAnalyzer:
     def __init__(self, json_path: Optional[str] = None):
         self.dangerous_calls = import_json._load_json("risky_calls.json").get('dangerous_calls', {})
 
     def analyze_parser_result(self, parser_result: Dict[str, Any]) -> Dict[str, Any]:
+        # Step 1: Aggregate details per call name
         details = {}
         for call in parser_result.get('calls_detailed', []):
             name = call.get('name', '')
-            if name:
-                if name not in details:
-                    details[name] = {'lines': [], 'args': [], 'keywords': []}
-                details[name]['lines'].append(call.get('line', 0))
-                details[name]['args'] = call.get('args', [])[:3]
-                details[name]['keywords'] = call.get('keywords', [])
+            if not name:
+                continue
 
-        # Score each call
+            if name not in details:
+                # Store first occurrence of args/keywords; accumulate lines
+                details[name] = {
+                    'lines': [],
+                    'args': call.get('args', []),
+                    'keywords': call.get('keywords', [])
+                }
+            details[name]['lines'].append(call.get('line', 0))
+
+        # Step 2: Build scored calls list
         scored = []
-        for name in set(parser_result.get('calls', [])):
+        for name, d in details.items():
             info = self.dangerous_calls.get(name, {})
-            d = details.get(name, {})
-
             scored.append({
                 "name": name,
                 "severity": info.get('severity', 0),
                 "category": info.get('category', ''),
                 "reason": info.get('reason', ''),
                 "cwe": info.get('cwe', ''),
-                "lines": d.get('lines', []),
-                "args": d.get('args', []),
-                "keywords": d.get('keywords', [])
+                "lines": d['lines'],
+                "args": d['args'],
+                "keywords": d['keywords']
             })
 
-        # Sort by severity (highest first)
+        # Step 3: Sort by severity descending
         scored.sort(key=lambda x: x['severity'], reverse=True)
 
-        return {"api_analysis": {"total_calls": len(scored), "scored_calls": scored}}
+        return {
+            "api_analysis": {
+                "total_calls": len(scored),
+                "scored_calls": scored
+            }
+        }

@@ -16,7 +16,8 @@ exec(decoded_payload)  # This will print "Hidden payload executed!"
 
 module_name = "o" + "s"
 my_os = __import__(module_name)
-token = my_os.getenv("AWS_SECRET_KEY")
+key = "AWS_SECRET_KEY"
+token = my_os.getenv(key)
 
 rot13_encoded = "cevag('Uryyb sebz ebg13')"
 decoded_code = codecs.decode(rot13_encoded, 'rot_13')

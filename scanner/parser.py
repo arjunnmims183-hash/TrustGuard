@@ -577,7 +577,7 @@ class Parser:
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Call):
                 name = self._resolve_call_name(node.func)
-                if name and name not in {"", "None", "True", "False", "self", "cls", "chr"}:
+                if name and name not in {"", "None", "True", "False", "self", "cls", "chr", "lambda"}:
                     calls.append(name)
         return calls
 
@@ -586,7 +586,7 @@ class Parser:
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Call):
                 name = self._resolve_call_name(node.func)
-                if name and name not in {"", "None", "True", "False", "self", "cls", "chr"}:
+                if name and name not in {"", "None", "True", "False", "self", "cls", "chr", "lambda"}:
                     line = node.lineno
                     resolved_args = []
                     for arg in node.args:
@@ -844,8 +844,8 @@ class Parser:
         return getattr(node, 'id', getattr(node, 'attr', getattr(node, 'name', str(node)[:30])))
 
 
-# if __name__ == "__main__":
-#     import json
-#     parser = Parser(r'C:\Users\Acer\Downloads\TrustGuard\test_samples\credential_theft.py')
-#     result = parser.parse()
-#     print(json.dumps(result, indent=2))
+if __name__ == "__main__":
+    import json
+    parser = Parser(r'C:\Users\Acer\Downloads\TrustGuard\test_samples\credential_theft.py')
+    result = parser.parse()
+    print(json.dumps(result, indent=2))

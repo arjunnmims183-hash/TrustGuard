@@ -1,3 +1,7 @@
+"""
+parser_pure.py - Pure AST parser with line-aware variable versioning.
+"""
+
 import ast
 import os
 from typing import Dict, List, Any, Optional, Set, Tuple
@@ -6,17 +10,21 @@ MAX_SOURCE_SIZE = 10_000_000
 
 
 class Parser:
+    """Pure parser with line-aware variable versioning."""
+
     def __init__(self, filepath: str):
         self.filepath = filepath
         self.tree = None
         self.source = None
 
+        # Line-aware versioning
         self.version_counter: Dict[str, int] = {}
         self.raw_to_current: Dict[str, str] = {}
-        self.var_chain: Dict[str, str] = {}
-        self.var_values: Dict[str, str] = {}
-        self.var_versions_by_line: Dict[str, List[Tuple[int, str]]] = {}
+        self.var_chain: Dict[str, str] = {}               # version -> expression
+        self.var_values: Dict[str, str] = {}              # version -> resolved value
+        self.var_versions_by_line: Dict[str, List[Tuple[int, str]]] = {}  # var -> [(line, version)]
 
+        # Alias mapping
         self.alias_map: Dict[str, str] = {}
         self.variable_values: Dict[str, str] = {}
         self.variable_chain: Dict[str, str] = {}
@@ -28,7 +36,6 @@ class Parser:
 
             self._build_variable_chains(self.tree)
             self._build_alias_map(self.tree)
-
             self._build_version_graph(self.tree)
 
             return {
@@ -56,17 +63,38 @@ class Parser:
                 "error": None,
             }
         except Exception as e:
-            return {"file": self.filepath, "error": str(e)}
+            return {"file": self.filepath, "error": str(e), **self._empty_result()}
+
+    def _empty_result(self) -> Dict[str, Any]:
+        return {
+            "lines": 0,
+            "imports": [],
+            "imports_detailed": [],
+            "calls": [],
+            "calls_detailed": [],
+            "strings": [],
+            "assignments": [],
+            "functions": [],
+            "classes": [],
+            "comments": [],
+            "constants": [],
+            "decorators": [],
+            "docstrings": [],
+            "loops": [],
+            "conditionals": [],
+            "try_except": [],
+            "variables": [],
+            "alias_map": {},
+            "version_chain": {},
+            "version_values": {},
+        }
 
     def _read_file(self) -> str:
-        """Read file with encoding detection."""
         if not os.path.exists(self.filepath):
             raise FileNotFoundError(f"File not found: {self.filepath}")
-
         size = os.path.getsize(self.filepath)
         if size > MAX_SOURCE_SIZE:
             raise ValueError(f"File too large: {size} bytes")
-
         for encoding in ("utf-8", "latin-1"):
             try:
                 with open(self.filepath, "r", encoding=encoding) as f:
@@ -74,6 +102,10 @@ class Parser:
             except UnicodeDecodeError:
                 continue
         raise UnicodeDecodeError(f"Cannot decode: {self.filepath}")
+
+    # ------------------------------------------------------------------
+    # Versioning helpers (line-aware)
+    # ------------------------------------------------------------------
 
     def _next_version(self, var: str, line: int) -> str:
         count = self.version_counter.get(var, 0) + 1
@@ -88,20 +120,8 @@ class Parser:
     def _current_version(self, var: str) -> str:
         return self.raw_to_current.get(var, var)
 
-    def _previous_version(self, var: str) -> Optional[str]:
-        count = self.version_counter.get(var, 0)
-        if count > 1:
-            return f"{var}#{count - 1}"
-        return None
-
-    def _get_version_for_resolution(self, var: str, current_version: str = None) -> str:
-        if current_version and var == current_version.split('#')[0]:
-            prev = self._previous_version(var)
-            if prev:
-                return prev
-        return self._current_version(var)
-
     def _get_version_at_line(self, var: str, line: int) -> str:
+        """Get the version of var active strictly before the given line."""
         if var not in self.var_versions_by_line:
             return var
         entries = self.var_versions_by_line[var]
@@ -114,7 +134,7 @@ class Parser:
                 hi = mid
         if lo == 0:
             return var
-        return entries[lo-1][1]
+        return entries[lo - 1][1]
 
     def _safe_unparse(self, node) -> str:
         try:
@@ -125,58 +145,89 @@ class Parser:
     def _eval_expr(self, node) -> Optional[str]:
         if node is None:
             return None
-
         if isinstance(node, ast.Constant):
             return node.value if isinstance(node.value, str) else None
-
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
             left = self._eval_expr(node.left)
             right = self._eval_expr(node.right)
             if isinstance(left, str) and isinstance(right, str):
                 return left + right
             return None
-
         if isinstance(node, ast.Name):
             return self.variable_values.get(node.id)
-
         return None
 
+    # ------------------------------------------------------------------
+    # Build version graph (process assignments and augmented assignments in line order)
+    # ------------------------------------------------------------------
+
     def _build_version_graph(self, tree):
-        assignments = []
+        # Collect assignments and augmented assignments
+        items = []
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign):
                 for target in node.targets:
                     if isinstance(target, ast.Name):
-                        assignments.append((node, target, node.lineno))
-        assignments.sort(key=lambda x: x[2])
+                        items.append((node, target, node.lineno, "assign"))
+            elif isinstance(node, ast.AugAssign):
+                if isinstance(node.target, ast.Name):
+                    items.append((node, node.target, node.lineno, "augassign"))
+        items.sort(key=lambda x: x[2])   # sort by line
 
-        for node, target, line in assignments:
+        for node, target, line, typ in items:
             var = target.id
             version = self._next_version(var, line)
             try:
-                expr = ast.unparse(node.value)
+                if typ == "assign":
+                    expr = ast.unparse(node.value)
+                else:
+                    # For augassign, store the whole operation string
+                    expr = f"{var} {ast.unparse(node.op)} {ast.unparse(node.value)}"
                 self.var_chain[version] = expr
-                resolved = self._resolve_node_value(node.value, version, line)
+                # Resolve using the current line (so self-reference gets previous version)
+                if typ == "assign":
+                    resolved = self._resolve_node_value(node.value, version, line)
+                else:
+                    resolved = self._resolve_node_value(node.value, version, line)
                 if resolved is not None:
                     self.var_values[version] = resolved
-            except:
+            except Exception:
                 self.var_chain[version] = "<unparse_error>"
 
-    def _resolve_node_value(self, node, current_version: str = None, line: int = None, _depth: int = 0, _visited: set = None) -> Optional[str]:
+    # ------------------------------------------------------------------
+    # Recursive resolution with line context
+    # ------------------------------------------------------------------
+
+    def _resolve_node_value(self, node, current_version: str = None, line: int = None,
+                            _depth: int = 0, _visited: set = None) -> Optional[str]:
+        if _depth > 30:
+            return "<depth_limit>"
+
+        if _visited is None:
+            _visited = set()
+
+        node_id = id(node)
+        if node_id in _visited:
+            return "<circular>"
+        _visited.add(node_id)
+
         if node is None:
             return None
 
+        # ---- Constant ----
         if isinstance(node, ast.Constant):
             if isinstance(node.value, str):
                 return repr(node.value)
             return str(node.value)
 
+        # ---- Name ----
         if isinstance(node, ast.Name):
             var = node.id
+            # Use line-aware version
             if line is not None:
                 ver = self._get_version_at_line(var, line)
             else:
-                ver = self._get_version_for_resolution(var, current_version)
+                ver = self._current_version(var)
 
             if ver in self.var_values:
                 return self.var_values[ver]
@@ -186,19 +237,20 @@ class Parser:
                 return repr(self.variable_values[var])
             return var
 
+        # ---- Call ----
         if isinstance(node, ast.Call):
+            func_expr = self._resolve_node_value(node.func, current_version, line, _depth + 1, _visited)
+            if func_expr is None:
+                func_expr = self._safe_unparse(node.func)
+
             # Simplify __import__('module') -> 'module'
-            func_name = self._resolve_node_value(node.func, current_version, line, _depth + 1, _visited)
-            if func_name == "__import__" and node.args:
-                arg_val = self._resolve_node_value(node.args[0], current_version, line, _depth + 1, _visited)
+            if func_expr == "__import__" and node.args:
+                arg = node.args[0]
+                arg_val = self._resolve_node_value(arg, current_version, line, _depth + 1, _visited)
                 if arg_val and arg_val.startswith("'") and arg_val.endswith("'"):
                     module_name = arg_val[1:-1]
                     if module_name.isidentifier():
                         return module_name
-
-            func_expr = self._resolve_node_value(node.func, current_version, line, _depth + 1, _visited)
-            if func_expr is None:
-                func_expr = self._safe_unparse(node.func)
 
             args = []
             for arg in node.args:
@@ -214,12 +266,14 @@ class Parser:
             all_args = args + kwargs
             return f"{func_expr}({', '.join(all_args)})"
 
+        # ---- Attribute ----
         if isinstance(node, ast.Attribute):
             base = self._resolve_node_value(node.value, current_version, line, _depth + 1, _visited)
             if base is None or base.startswith("<"):
                 base = self._safe_unparse(node.value)
             return f"{base}.{node.attr}"
 
+        # ---- BinOp ----
         if isinstance(node, ast.BinOp):
             val = self._eval_expr(node)
             if val is not None:
@@ -233,11 +287,13 @@ class Parser:
                 right = self._safe_unparse(node.right)
             return f"{left} {op} {right}"
 
+        # ---- UnaryOp ----
         if isinstance(node, ast.UnaryOp):
             operand = self._resolve_node_value(node.operand, current_version, line, _depth + 1, _visited)
             op = ast.unparse(node.op).strip()
             return f"{op}{operand if operand is not None else self._safe_unparse(node.operand)}"
 
+        # ---- F-string ----
         if isinstance(node, ast.JoinedStr):
             result = ""
             for part in node.values:
@@ -250,9 +306,11 @@ class Parser:
                     result += val if val else ""
             return result
 
+        # ---- FormattedValue ----
         if isinstance(node, ast.FormattedValue):
             return self._resolve_node_value(node.value, current_version, line, _depth + 1, _visited)
 
+        # ---- List/Tuple/Dict/Subscript ----
         if isinstance(node, ast.List):
             elements = []
             for el in node.elts:
@@ -272,7 +330,8 @@ class Parser:
             for k, v in zip(node.keys, node.values):
                 key = self._resolve_node_value(k, current_version, line, _depth + 1, _visited)
                 val = self._resolve_node_value(v, current_version, line, _depth + 1, _visited)
-                items.append(f"{key if key is not None else self._safe_unparse(k)}: {val if val is not None else self._safe_unparse(v)}")
+                items.append(
+                    f"{key if key is not None else self._safe_unparse(k)}: {val if val is not None else self._safe_unparse(v)}")
             return f"{{{', '.join(items)}}}"
 
         if isinstance(node, ast.Subscript):
@@ -285,7 +344,12 @@ class Parser:
         except:
             return None
 
-    def _resolve_expression_with_version(self, expr: str, version: str, line: int = None, _depth: int = 0, _visited: set = None) -> str:
+    # ------------------------------------------------------------------
+    # Resolve expression string with line context
+    # ------------------------------------------------------------------
+
+    def _resolve_expression_with_version(self, expr: str, version: str, line: int = None,
+                                         _depth: int = 0, _visited: set = None) -> str:
         if _depth > 30:
             return "<depth_limit>"
 
@@ -296,18 +360,19 @@ class Parser:
             return ""
 
         expr = expr.strip()
-
+        # Cycle detection on expression+version
         key = f"{expr}:{version}"
         if key in _visited:
             return "<circular>"
         _visited.add(key)
 
+        # ---- Simple variable ----
         if expr.isidentifier():
             var = expr
             if line is not None:
                 ver = self._get_version_at_line(var, line)
             else:
-                ver = self._get_version_for_resolution(var, version)
+                ver = self._current_version(var)
 
             if ver in self.var_values:
                 return self.var_values[ver]
@@ -317,6 +382,7 @@ class Parser:
                 return repr(self.variable_values[var])
             return expr
 
+        # ---- Function call ----
         if '(' in expr and ')' in expr:
             try:
                 call_name = expr.split('(', 1)[0].strip()
@@ -324,6 +390,7 @@ class Parser:
             except:
                 return expr
 
+            # Simplify __import__
             if call_name == "__import__" and args_str:
                 arg = args_str.strip()
                 if arg and arg.startswith("'") and arg.endswith("'"):
@@ -343,7 +410,6 @@ class Parser:
                 depth = 0
                 in_string = False
                 string_char = None
-
                 for ch in args_str:
                     if ch in ("'", '"') and (not current or current[-1] != '\\'):
                         if not in_string:
@@ -351,7 +417,6 @@ class Parser:
                             string_char = ch
                         elif ch == string_char:
                             in_string = False
-
                     if not in_string:
                         if ch == '(':
                             depth += 1
@@ -370,6 +435,7 @@ class Parser:
                     if arg.isidentifier():
                         resolved_args.append(self._resolve_expression_with_version(arg, version, line, _depth + 1, _visited))
                     else:
+                        # Try to evaluate string addition
                         if '+' in arg and all(x.strip().startswith("'") for x in arg.split('+')):
                             try:
                                 parts = [p.strip().strip("'") for p in arg.split('+')]
@@ -379,14 +445,18 @@ class Parser:
                                 resolved_args.append(arg)
                         else:
                             resolved_args.append(arg)
-
                 return f"{call_name}({', '.join(resolved_args)})"
             return expr
 
+        # ---- String literal ----
         if (expr.startswith("'") and expr.endswith("'")) or (expr.startswith('"') and expr.endswith('"')):
             return expr
 
         return expr
+
+    # ------------------------------------------------------------------
+    # Build variable chains and alias map
+    # ------------------------------------------------------------------
 
     def _build_variable_chains(self, tree):
         for node in ast.walk(tree):
@@ -423,7 +493,6 @@ class Parser:
                                             module_name = resolved[1:-1]
                                 elif isinstance(arg, ast.BinOp):
                                     module_name = self._eval_expr(arg)
-
                             if module_name and isinstance(module_name, str):
                                 self.alias_map[target.id] = module_name
 
@@ -437,28 +506,27 @@ class Parser:
                 return True
         return False
 
+    # ------------------------------------------------------------------
+    # Public resolvers (with line context)
+    # ------------------------------------------------------------------
+
     def _resolve_call_name(self, node) -> str:
         if node is None:
             return ""
-
         if isinstance(node, ast.Name):
             if node.id in self.alias_map:
                 return self.alias_map[node.id]
             return node.id
-
         if isinstance(node, ast.Attribute):
             resolved_base = self._resolve_call_name(node.value)
             attr = node.attr
             if resolved_base:
                 return f"{resolved_base}.{attr}"
             return attr
-
         if isinstance(node, ast.Call):
             return self._resolve_call_name(node.func)
-
         if isinstance(node, ast.Constant):
             return str(node.value)
-
         try:
             return ast.unparse(node)
         except:
@@ -467,9 +535,12 @@ class Parser:
     def _resolve_value(self, node, line: int = None) -> str:
         if node is None:
             return ""
-
         resolved = self._resolve_node_value(node, current_version=None, line=line)
         return resolved if resolved is not None else self._safe_unparse(node)
+
+    # ------------------------------------------------------------------
+    # Extractors (pass line numbers)
+    # ------------------------------------------------------------------
 
     def _get_imports(self) -> List[str]:
         imports = set()
@@ -520,7 +591,6 @@ class Parser:
                     resolved_args = []
                     for arg in node.args:
                         resolved_args.append(self._resolve_value(arg, line=line))
-
                     resolved_keywords = []
                     for kw in node.keywords:
                         if kw.arg:
@@ -528,7 +598,6 @@ class Parser:
                                 "arg": kw.arg,
                                 "value": self._resolve_value(kw.value, line=line)
                             })
-
                     calls.append({
                         "name": name,
                         "line": line,
@@ -567,23 +636,42 @@ class Parser:
                         line = node.lineno
                         rhs = self._get_value_repr(node.value)
                         resolved = self._resolve_value(node.value, line=line)
+
+                        # Find the version created at this line
+                        version = None
+                        if var in self.var_versions_by_line:
+                            for l, ver in self.var_versions_by_line[var]:
+                                if l == line:
+                                    version = ver
+                                    break
+                        if version is None:
+                            version = self._current_version(var)
+
                         assignments.append({
                             "line": line,
                             "variable": var,
                             "value": rhs,
                             "resolved_value": resolved if resolved != rhs else None,
-                            "version": self._current_version(var),
+                            "version": version,
                             "operation": "=",
                             "type": "assignment",
                         })
             elif isinstance(node, ast.AugAssign):
                 if isinstance(node.target, ast.Name):
+                    var = node.target.id
+                    line = node.lineno
                     op = ast.unparse(node.op).strip()
                     rhs = self._get_value_repr(node.value)
+                    # For augassign, we want the version that existed before this line (the one being modified)
+                    version = self._get_version_at_line(var, line)
+                    if version is None:
+                        version = self._current_version(var)
                     assignments.append({
-                        "line": node.lineno,
-                        "variable": node.target.id,
-                        "value": rhs,
+                        "line": line,
+                        "variable": var,
+                        "value": f"{var} {op} {rhs}",
+                        "resolved_value": None,  # could be resolved but not needed
+                        "version": version,
                         "operation": op,
                         "type": "augmented_assignment",
                     })
@@ -756,8 +844,8 @@ class Parser:
         return getattr(node, 'id', getattr(node, 'attr', getattr(node, 'name', str(node)[:30])))
 
 
-if __name__ == "__main__":
-    import json
-    parser = Parser(r'C:\Users\Acer\Downloads\TrustGuard\test_samples\credential_theft.py')
-    result = parser.parse()
-    print(json.dumps(result, indent=2))
+# if __name__ == "__main__":
+#     import json
+#     parser = Parser(r'C:\Users\Acer\Downloads\TrustGuard\test_samples\credential_theft.py')
+#     result = parser.parse()
+#     print(json.dumps(result, indent=2))

@@ -1,8 +1,3 @@
-"""
-parser_pure.py - Pure AST parser without security logic.
-Just extracts raw data. Security checks will be added later.
-"""
-
 import ast
 import os
 from typing import Dict, List, Any, Optional
@@ -10,22 +5,20 @@ from typing import Dict, List, Any, Optional
 MAX_SOURCE_SIZE = 10_000_000
 
 class Parser:
-    """Pure parser - extracts raw data only. No security logic."""
     def __init__(self, filepath: str):
         self.filepath = filepath
         self.tree = None
         self.source = None
-        # For alias resolution
-        self.alias_map = {}          # variable_name -> resolved_module (e.g., "my_os" -> "os")
-        self.variable_values = {}    # variable_name -> constant_value (e.g., "module_name" -> "os")
+        self.alias_map = {}  # variable_name -> resolved_module (e.g., "my_os" -> "os")
+        self.variable_values = {}  # variable_name -> constant_value (e.g., "module_name" -> "os")
+        self.variable_chain = {}  # variable_name -> full expression chain
 
     def parse(self) -> Dict[str, Any]:
-        """Parse file and return raw data."""
         try:
             self.source = self._read_file()
             self.tree = ast.parse(self.source, filename=self.filepath)
 
-            # Build alias map *before* extracting calls so that calls can be resolved
+            self._build_variable_chain(self.tree)
             self._build_alias_map(self.tree)
 
             return {
@@ -47,33 +40,11 @@ class Parser:
                 "conditionals": self._get_conditionals(),
                 "try_except": self._get_try_except(),
                 "variables": self._get_variables(),
-                "alias_map": self.alias_map,   # optional, for debugging
+                "alias_map": self.alias_map,
                 "error": None,
             }
         except Exception as e:
-            return {"file": self.filepath, "error": str(e), **self._empty_result()}
-
-    def _empty_result(self) -> Dict[str, Any]:
-        return {
-            "lines": 0,
-            "imports": [],
-            "imports_detailed": [],
-            "calls": [],
-            "calls_detailed": [],
-            "strings": [],
-            "assignments": [],
-            "functions": [],
-            "classes": [],
-            "comments": [],
-            "constants": [],
-            "decorators": [],
-            "docstrings": [],
-            "loops": [],
-            "conditionals": [],
-            "try_except": [],
-            "variables": [],
-            "alias_map": {},
-        }
+            return {"file": self.filepath, "error": str(e)}
 
     def _read_file(self) -> str:
         """Read file with encoding detection."""
@@ -93,7 +64,7 @@ class Parser:
         raise UnicodeDecodeError(f"Cannot decode: {self.filepath}")
 
     # ------------------------------------------------------------------
-    # New methods for alias resolution
+    # Alias and Variable Value Resolution
     # ------------------------------------------------------------------
 
     def _eval_expr(self, node) -> Optional[str]:
@@ -101,83 +72,296 @@ class Parser:
         Evaluate a constant expression (e.g., "o" + "s", variable references).
         Returns the constant value if possible, else None.
         """
+        if node is None:
+            return None
+
         if isinstance(node, ast.Constant):
             return node.value if isinstance(node.value, str) else None
+
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
             left = self._eval_expr(node.left)
             right = self._eval_expr(node.right)
             if isinstance(left, str) and isinstance(right, str):
                 return left + right
             return None
+
         if isinstance(node, ast.Name):
-            # Look up variable value from previously assigned constants
             return self.variable_values.get(node.id)
-        # Add more operations (e.g., multiplication) if needed
+
         return None
 
-    def _build_alias_map(self, tree):
-        """
-        Walk the AST to find dynamic imports and constant assignments.
-        Populates self.alias_map and self.variable_values.
-        """
+    def _resolve_variable_chain(self, var_name: str, visited: set = None) -> str:
+        """Recursively resolve a variable to its final value."""
+        if visited is None:
+            visited = set()
+
+        if var_name in visited:
+            return var_name
+        visited.add(var_name)
+
+        if var_name in self.variable_chain:
+            expr = self.variable_chain[var_name]
+            if expr.isidentifier():
+                return self._resolve_variable_chain(expr, visited)
+            return self._resolve_expr_variables(expr, visited)
+
+        if var_name in self.variable_values:
+            return repr(self.variable_values[var_name])
+
+        return var_name
+
+    def _resolve_expr_variables(self, expr: str, visited: set = None) -> str:
+        """Resolve variables inside an expression."""
+        if visited is None:
+            visited = set()
+
+        if expr.isidentifier():
+            return self._resolve_variable_chain(expr, visited)
+
+        # Handle f-string
+        if 'f"' in expr or "f'" in expr:
+            if expr.startswith('f"') and expr.endswith('"'):
+                content = expr[2:-1]
+            elif expr.startswith("f'") and expr.endswith("'"):
+                content = expr[2:-1]
+            else:
+                return expr
+
+            import re
+            def replace_var(match):
+                var = match.group(1)
+                resolved = self._resolve_variable_chain(var, visited)
+                return resolved if resolved != var else match.group(0)
+
+            result = re.sub(r'\{([a-zA-Z_][a-zA-Z0-9_]*)\}', replace_var, content)
+            return result
+
+        # Handle function calls
+        if '(' in expr and ')' in expr:
+            call_name = expr.split('(', 1)[0].strip()
+            args_str = expr[expr.find('(') + 1:expr.rfind(')')]
+
+            if args_str:
+                args = []
+                current = ""
+                depth = 0
+                in_string = False
+                string_char = None
+
+                for ch in args_str:
+                    if ch in ("'", '"') and (not current or current[-1] != '\\'):
+                        if not in_string:
+                            in_string = True
+                            string_char = ch
+                        elif ch == string_char:
+                            in_string = False
+
+                    if not in_string:
+                        if ch == '(':
+                            depth += 1
+                        elif ch == ')':
+                            depth -= 1
+                        elif ch == ',' and depth == 0:
+                            args.append(current.strip())
+                            current = ""
+                            continue
+                    current += ch
+                if current:
+                    args.append(current.strip())
+
+                resolved_args = []
+                for arg in args:
+                    if arg.isidentifier():
+                        resolved_args.append(self._resolve_variable_chain(arg, visited))
+                    else:
+                        resolved_args.append(arg)
+
+                return f"{call_name}({', '.join(resolved_args)})"
+            return expr
+
+        # String literal
+        if (expr.startswith("'") and expr.endswith("'")) or (expr.startswith('"') and expr.endswith('"')):
+            return expr
+
+        return expr
+
+    def _build_variable_chain(self, tree):
+        """Build variable chain from assignments."""
         for node in ast.walk(tree):
-            # Track constant assignments (e.g., module_name = "o" + "s")
             if isinstance(node, ast.Assign):
                 for target in node.targets:
                     if isinstance(target, ast.Name):
-                        val = self._eval_expr(node.value)
-                        if val is not None:
-                            self.variable_values[target.id] = val
+                        try:
+                            expr_str = ast.unparse(node.value)
+                            self.variable_chain[target.id] = expr_str
+                            val = self._eval_expr(node.value)
+                            if val is not None:
+                                self.variable_values[target.id] = val
+                        except:
+                            pass
 
-            # Find dynamic imports: __import__(...) or importlib.import_module(...)
+    def _build_alias_map(self, tree):
+        """
+        Build alias map for dynamic imports.
+        Example: my_os = __import__(module_name) where module_name = "os"
+        """
+        for node in ast.walk(tree):
             if isinstance(node, ast.Assign):
                 for target in node.targets:
                     if isinstance(target, ast.Name) and isinstance(node.value, ast.Call):
                         call = node.value
+
                         if self._is_dynamic_import(call):
-                            module_name = self._eval_expr(call.args[0]) if call.args else None
+                            module_name = None
+
+                            if call.args:
+                                arg = call.args[0]
+
+                                # Direct string constant
+                                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                                    module_name = arg.value
+
+                                # Variable reference (resolve it)
+                                elif isinstance(arg, ast.Name):
+                                    # Try variable_values first
+                                    if arg.id in self.variable_values:
+                                        module_name = self.variable_values[arg.id]
+                                    # Try variable_chain
+                                    elif arg.id in self.variable_chain:
+                                        resolved = self._resolve_variable_chain(arg.id)
+                                        if resolved and resolved != arg.id:
+                                            module_name = resolved
+
+                                # Binary operation like "o" + "s"
+                                elif isinstance(arg, ast.BinOp):
+                                    module_name = self._eval_expr(arg)
+
+                            # If we got a module name, add to alias_map
                             if module_name and isinstance(module_name, str):
                                 self.alias_map[target.id] = module_name
+                                print(f"✅ Alias: {target.id} -> {module_name}")  # Debug
 
     def _is_dynamic_import(self, call_node) -> bool:
         """Return True if call is __import__ or importlib.import_module."""
         func = call_node.func
+
         if isinstance(func, ast.Name) and func.id == '__import__':
             return True
+
         if isinstance(func, ast.Attribute):
             if (isinstance(func.value, ast.Name) and func.value.id == 'importlib'
                     and func.attr == 'import_module'):
                 return True
+
         return False
 
     def _resolve_call_name(self, node) -> str:
         """
-        Resolve an AST node that represents a callable name (e.g., my_os.getenv -> os.getenv).
+        Resolve call name with alias support.
+        Example: my_os.getenv -> os.getenv
         """
+        if node is None:
+            return ""
+
+        # ---- Name node ----
         if isinstance(node, ast.Name):
+            if node.id in self.alias_map:
+                return self.alias_map[node.id]
             return node.id
+
+        # ---- Attribute node ----
         if isinstance(node, ast.Attribute):
-            base = node.value
+            resolved_base = self._resolve_call_name(node.value)
             attr = node.attr
-            # Resolve base if it's a Name and in alias_map
-            if isinstance(base, ast.Name) and base.id in self.alias_map:
-                resolved_base = self.alias_map[base.id]
-                return f"{resolved_base}.{attr}"
-            # Otherwise, recursively resolve base (e.g., a.b.c)
-            resolved_base = self._resolve_call_name(base) if hasattr(base, 'id') or hasattr(base, 'value') else None
+
+            # If base is an alias, it's already resolved
             if resolved_base:
                 return f"{resolved_base}.{attr}"
-            # Fallback to unparse
+            return attr
+
+        # ---- Call node ----
+        if isinstance(node, ast.Call):
+            return self._resolve_call_name(node.func)
+
+        # ---- Constant ----
+        if isinstance(node, ast.Constant):
+            return str(node.value)
+
+        try:
             return ast.unparse(node)
-        # Fallback for other types
-        return self._get_name(node)
+        except:
+            return str(type(node).__name__)
+
+    def _resolve_value(self, node) -> str:
+        """Resolve a node to its constant value if possible."""
+        if node is None:
+            return ""
+
+        # ---- Name node ----
+        if isinstance(node, ast.Name):
+            var_name = node.id
+            if var_name in self.variable_values:
+                return repr(self.variable_values[var_name])
+            if var_name in self.variable_chain:
+                return self._resolve_variable_chain(var_name)
+            return var_name
+
+        # ---- Constant node ----
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, str):
+                return repr(node.value)
+            return str(node.value)
+
+        # ---- F-string ----
+        if isinstance(node, ast.JoinedStr):
+            result = ""
+            for part in node.values:
+                if isinstance(part, ast.Constant):
+                    result += str(part.value)
+                elif isinstance(part, ast.FormattedValue):
+                    val = self._resolve_value(part.value)
+                    if val.startswith("'") and val.endswith("'"):
+                        val = val[1:-1]
+                    elif val.startswith('"') and val.endswith('"'):
+                        val = val[1:-1]
+                    result += val
+            return result
+
+        if isinstance(node, ast.FormattedValue):
+            return self._resolve_value(node.value)
+
+        # ---- BinOp ----
+        if isinstance(node, ast.BinOp):
+            val = self._eval_expr(node)
+            if val is not None:
+                return repr(val)
+
+        # ---- Call node ----
+        if isinstance(node, ast.Call):
+            name = self._resolve_call_name(node.func)
+            args = [self._resolve_value(a) for a in node.args]
+            kwargs = []
+            for kw in node.keywords:
+                if kw.arg:
+                    kwargs.append(f"{kw.arg}={self._resolve_value(kw.value)}")
+            all_args = args + kwargs
+            return f"{name}({', '.join(all_args)})"
+
+        # ---- Attribute node ----
+        if isinstance(node, ast.Attribute):
+            resolved_base = self._resolve_value(node.value)
+            return f"{resolved_base}.{node.attr}"
+
+        try:
+            return ast.unparse(node)
+        except:
+            return str(type(node).__name__)
 
     # ------------------------------------------------------------------
-    # Existing methods (modified where needed)
+    # Existing methods
     # ------------------------------------------------------------------
 
     def _get_imports(self) -> List[str]:
-        """Get all imported module names."""
         imports = set()
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Import):
@@ -188,7 +372,6 @@ class Parser:
         return sorted(imports)
 
     def _get_imports_detailed(self) -> List[Dict[str, Any]]:
-        """Get detailed imports with line numbers."""
         imports = []
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Import):
@@ -209,37 +392,43 @@ class Parser:
         return imports
 
     def _get_calls(self) -> List[str]:
-        """Get all function/method call names, resolved for aliases."""
         calls = []
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Call):
                 name = self._resolve_call_name(node.func)
-                if name and name not in {"", "None", "True", "False", "self", "cls"}:
+                if name and name not in {"", "None", "True", "False", "self", "cls", "chr"}:
                     calls.append(name)
         return calls
 
     def _get_calls_detailed(self) -> List[Dict[str, Any]]:
-        """Get detailed call info, with resolved names."""
         calls = []
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Call):
                 name = self._resolve_call_name(node.func)
-                if name and name not in {"", "None", "True", "False", "self", "cls"}:
+                if name and name not in {"", "None", "True", "False", "self", "cls", "chr"}:
+                    resolved_args = []
+                    for arg in node.args:
+                        resolved_args.append(self._resolve_value(arg))
+
+                    resolved_keywords = []
+                    for kw in node.keywords:
+                        if kw.arg:
+                            resolved_keywords.append({
+                                "arg": kw.arg,
+                                "value": self._resolve_value(kw.value)
+                            })
+
                     calls.append({
                         "name": name,
                         "line": node.lineno,
                         "arg_count": len(node.args),
                         "kw_count": len(node.keywords),
-                        "args": [self._resolve_call_name(a) if isinstance(a, (ast.Name, ast.Attribute)) else self._get_name(a) for a in node.args],
-                        "keywords": [
-                            {"arg": kw.arg, "value": self._resolve_call_name(kw.value) if isinstance(kw.value, (ast.Name, ast.Attribute)) else self._get_name(kw.value)}
-                            for kw in node.keywords if kw.arg
-                        ]
+                        "args": resolved_args,
+                        "keywords": resolved_keywords
                     })
         return calls
 
     def _get_strings(self) -> List[Dict[str, Any]]:
-        """Get all string literals - UNIFORM FORMAT."""
         strings = []
         seen = set()
         for node in ast.walk(self.tree):
@@ -258,7 +447,6 @@ class Parser:
         return strings
 
     def _get_assignments(self) -> List[Dict[str, Any]]:
-        """Get all variable assignments with their values."""
         assignments = []
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Assign):
@@ -287,14 +475,13 @@ class Parser:
 
     def _get_value_repr(self, node) -> str:
         try:
-            return ast.unparse(node)  # Python 3.9+ gives exact source text
+            return ast.unparse(node)
         except Exception:
             if isinstance(node, ast.Constant):
                 return repr(node.value)
             return str(node)[:50]
 
     def _get_functions(self) -> List[Dict[str, Any]]:
-        """Get all function definitions."""
         functions = []
         for node in ast.walk(self.tree):
             if isinstance(node, ast.FunctionDef):
@@ -322,7 +509,6 @@ class Parser:
         return functions
 
     def _get_classes(self) -> List[Dict[str, Any]]:
-        """Get all class definitions."""
         classes = []
         for node in ast.walk(self.tree):
             if isinstance(node, ast.ClassDef):
@@ -337,7 +523,6 @@ class Parser:
         return classes
 
     def _get_comments(self) -> List[Dict[str, Any]]:
-        """Get all comments - UNIFORM FORMAT."""
         comments = []
         for line_num, line in enumerate(self.source.split('\n'), 1):
             stripped = line.strip()
@@ -350,7 +535,6 @@ class Parser:
         return comments
 
     def _get_constants(self) -> List[Dict[str, Any]]:
-        """Get all constants (numbers, booleans, None) - UNIFORM FORMAT."""
         constants = []
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Constant):
@@ -363,7 +547,6 @@ class Parser:
         return constants
 
     def _get_decorators(self) -> List[Dict[str, Any]]:
-        """Get all decorators - UNIFORM FORMAT."""
         decorators = []
         for node in ast.walk(self.tree):
             if hasattr(node, 'decorator_list') and node.decorator_list:
@@ -379,7 +562,6 @@ class Parser:
         return decorators
 
     def _get_docstrings(self) -> List[Dict[str, Any]]:
-        """Get all docstrings - UNIFORM FORMAT."""
         docstrings = []
         for node in ast.walk(self.tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module)):
@@ -394,7 +576,6 @@ class Parser:
         return docstrings
 
     def _get_loops(self) -> List[Dict[str, Any]]:
-        """Get all loops."""
         loops = []
         for node in ast.walk(self.tree):
             if isinstance(node, ast.For):
@@ -413,7 +594,6 @@ class Parser:
         return loops
 
     def _get_conditionals(self) -> List[Dict[str, Any]]:
-        """Get all conditionals."""
         conditionals = []
         for node in ast.walk(self.tree):
             if isinstance(node, ast.If):
@@ -426,7 +606,6 @@ class Parser:
         return conditionals
 
     def _get_try_except(self) -> List[Dict[str, Any]]:
-        """Get all try/except blocks."""
         try_blocks = []
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Try):
@@ -440,7 +619,6 @@ class Parser:
         return try_blocks
 
     def _get_variables(self) -> List[Dict[str, Any]]:
-        """Get all variable names - UNIFORM FORMAT."""
         variables = set()
         for node in ast.walk(self.tree):
             if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
@@ -448,7 +626,6 @@ class Parser:
         return [{"value": v, "type": "variable"} for v in sorted(variables)]
 
     def _get_name(self, node) -> str:
-        """Get readable name from AST node."""
         if not node:
             return ""
         if isinstance(node, ast.Name):
@@ -461,9 +638,3 @@ class Parser:
         if isinstance(node, ast.Constant):
             return str(node.value)
         return getattr(node, 'id', getattr(node, 'attr', getattr(node, 'name', str(node)[:30])))
-
-
-#For testing
-#parser = Parser(r'C:\Users\naman\Mirror\Downloads\naman\MEITY\Project\trustguard_phase1+2\trustguard_v2&v3\test_samples\credential_theft.py')
-#esult = parser.parse()
-#print(result)

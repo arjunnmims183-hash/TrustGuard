@@ -1,25 +1,35 @@
 import ast
 import os
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Set, Tuple
 
 MAX_SOURCE_SIZE = 10_000_000
+
 
 class Parser:
     def __init__(self, filepath: str):
         self.filepath = filepath
         self.tree = None
         self.source = None
-        self.alias_map = {}  # variable_name -> resolved_module (e.g., "my_os" -> "os")
-        self.variable_values = {}  # variable_name -> constant_value (e.g., "module_name" -> "os")
-        self.variable_chain = {}  # variable_name -> full expression chain
+
+        self.version_counter: Dict[str, int] = {}
+        self.raw_to_current: Dict[str, str] = {}
+        self.var_chain: Dict[str, str] = {}
+        self.var_values: Dict[str, str] = {}
+        self.var_versions_by_line: Dict[str, List[Tuple[int, str]]] = {}
+
+        self.alias_map: Dict[str, str] = {}
+        self.variable_values: Dict[str, str] = {}
+        self.variable_chain: Dict[str, str] = {}
 
     def parse(self) -> Dict[str, Any]:
         try:
             self.source = self._read_file()
             self.tree = ast.parse(self.source, filename=self.filepath)
 
-            self._build_variable_chain(self.tree)
+            self._build_variable_chains(self.tree)
             self._build_alias_map(self.tree)
+
+            self._build_version_graph(self.tree)
 
             return {
                 "file": self.filepath,
@@ -41,6 +51,8 @@ class Parser:
                 "try_except": self._get_try_except(),
                 "variables": self._get_variables(),
                 "alias_map": self.alias_map,
+                "version_chain": self.var_chain,
+                "version_values": self.var_values,
                 "error": None,
             }
         except Exception as e:
@@ -63,15 +75,54 @@ class Parser:
                 continue
         raise UnicodeDecodeError(f"Cannot decode: {self.filepath}")
 
-    # ------------------------------------------------------------------
-    # Alias and Variable Value Resolution
-    # ------------------------------------------------------------------
+    def _next_version(self, var: str, line: int) -> str:
+        count = self.version_counter.get(var, 0) + 1
+        self.version_counter[var] = count
+        ver = f"{var}#{count}"
+        self.raw_to_current[var] = ver
+        if var not in self.var_versions_by_line:
+            self.var_versions_by_line[var] = []
+        self.var_versions_by_line[var].append((line, ver))
+        return ver
+
+    def _current_version(self, var: str) -> str:
+        return self.raw_to_current.get(var, var)
+
+    def _previous_version(self, var: str) -> Optional[str]:
+        count = self.version_counter.get(var, 0)
+        if count > 1:
+            return f"{var}#{count - 1}"
+        return None
+
+    def _get_version_for_resolution(self, var: str, current_version: str = None) -> str:
+        if current_version and var == current_version.split('#')[0]:
+            prev = self._previous_version(var)
+            if prev:
+                return prev
+        return self._current_version(var)
+
+    def _get_version_at_line(self, var: str, line: int) -> str:
+        if var not in self.var_versions_by_line:
+            return var
+        entries = self.var_versions_by_line[var]
+        lo, hi = 0, len(entries)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if entries[mid][0] < line:
+                lo = mid + 1
+            else:
+                hi = mid
+        if lo == 0:
+            return var
+        return entries[lo-1][1]
+
+    def _safe_unparse(self, node) -> str:
+        try:
+            return ast.unparse(node)
+        except:
+            return str(type(node).__name__)
 
     def _eval_expr(self, node) -> Optional[str]:
-        """
-        Evaluate a constant expression (e.g., "o" + "s", variable references).
-        Returns the constant value if possible, else None.
-        """
         if node is None:
             return None
 
@@ -90,56 +141,201 @@ class Parser:
 
         return None
 
-    def _resolve_variable_chain(self, var_name: str, visited: set = None) -> str:
-        """Recursively resolve a variable to its final value."""
-        if visited is None:
-            visited = set()
+    def _build_version_graph(self, tree):
+        assignments = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        assignments.append((node, target, node.lineno))
+        assignments.sort(key=lambda x: x[2])
 
-        if var_name in visited:
-            return var_name
-        visited.add(var_name)
+        for node, target, line in assignments:
+            var = target.id
+            version = self._next_version(var, line)
+            try:
+                expr = ast.unparse(node.value)
+                self.var_chain[version] = expr
+                resolved = self._resolve_node_value(node.value, version, line)
+                if resolved is not None:
+                    self.var_values[version] = resolved
+            except:
+                self.var_chain[version] = "<unparse_error>"
 
-        if var_name in self.variable_chain:
-            expr = self.variable_chain[var_name]
-            if expr.isidentifier():
-                return self._resolve_variable_chain(expr, visited)
-            return self._resolve_expr_variables(expr, visited)
+    def _resolve_node_value(self, node, current_version: str = None, line: int = None, _depth: int = 0, _visited: set = None) -> Optional[str]:
+        if node is None:
+            return None
 
-        if var_name in self.variable_values:
-            return repr(self.variable_values[var_name])
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, str):
+                return repr(node.value)
+            return str(node.value)
 
-        return var_name
-
-    def _resolve_expr_variables(self, expr: str, visited: set = None) -> str:
-        """Resolve variables inside an expression."""
-        if visited is None:
-            visited = set()
-
-        if expr.isidentifier():
-            return self._resolve_variable_chain(expr, visited)
-
-        # Handle f-string
-        if 'f"' in expr or "f'" in expr:
-            if expr.startswith('f"') and expr.endswith('"'):
-                content = expr[2:-1]
-            elif expr.startswith("f'") and expr.endswith("'"):
-                content = expr[2:-1]
+        if isinstance(node, ast.Name):
+            var = node.id
+            if line is not None:
+                ver = self._get_version_at_line(var, line)
             else:
-                return expr
+                ver = self._get_version_for_resolution(var, current_version)
 
-            import re
-            def replace_var(match):
-                var = match.group(1)
-                resolved = self._resolve_variable_chain(var, visited)
-                return resolved if resolved != var else match.group(0)
+            if ver in self.var_values:
+                return self.var_values[ver]
+            if ver in self.var_chain:
+                return self._resolve_expression_with_version(self.var_chain[ver], ver, line, _depth + 1, _visited)
+            if var in self.variable_values:
+                return repr(self.variable_values[var])
+            return var
 
-            result = re.sub(r'\{([a-zA-Z_][a-zA-Z0-9_]*)\}', replace_var, content)
+        if isinstance(node, ast.Call):
+            # Simplify __import__('module') -> 'module'
+            func_name = self._resolve_node_value(node.func, current_version, line, _depth + 1, _visited)
+            if func_name == "__import__" and node.args:
+                arg_val = self._resolve_node_value(node.args[0], current_version, line, _depth + 1, _visited)
+                if arg_val and arg_val.startswith("'") and arg_val.endswith("'"):
+                    module_name = arg_val[1:-1]
+                    if module_name.isidentifier():
+                        return module_name
+
+            func_expr = self._resolve_node_value(node.func, current_version, line, _depth + 1, _visited)
+            if func_expr is None:
+                func_expr = self._safe_unparse(node.func)
+
+            args = []
+            for arg in node.args:
+                resolved = self._resolve_node_value(arg, current_version, line, _depth + 1, _visited)
+                args.append(resolved if resolved is not None else self._safe_unparse(arg))
+
+            kwargs = []
+            for kw in node.keywords:
+                if kw.arg:
+                    val = self._resolve_node_value(kw.value, current_version, line, _depth + 1, _visited)
+                    kwargs.append(f"{kw.arg}={val if val is not None else self._safe_unparse(kw.value)}")
+
+            all_args = args + kwargs
+            return f"{func_expr}({', '.join(all_args)})"
+
+        if isinstance(node, ast.Attribute):
+            base = self._resolve_node_value(node.value, current_version, line, _depth + 1, _visited)
+            if base is None or base.startswith("<"):
+                base = self._safe_unparse(node.value)
+            return f"{base}.{node.attr}"
+
+        if isinstance(node, ast.BinOp):
+            val = self._eval_expr(node)
+            if val is not None:
+                return repr(val)
+            left = self._resolve_node_value(node.left, current_version, line, _depth + 1, _visited)
+            right = self._resolve_node_value(node.right, current_version, line, _depth + 1, _visited)
+            op = ast.unparse(node.op).strip()
+            if left is None:
+                left = self._safe_unparse(node.left)
+            if right is None:
+                right = self._safe_unparse(node.right)
+            return f"{left} {op} {right}"
+
+        if isinstance(node, ast.UnaryOp):
+            operand = self._resolve_node_value(node.operand, current_version, line, _depth + 1, _visited)
+            op = ast.unparse(node.op).strip()
+            return f"{op}{operand if operand is not None else self._safe_unparse(node.operand)}"
+
+        if isinstance(node, ast.JoinedStr):
+            result = ""
+            for part in node.values:
+                if isinstance(part, ast.Constant):
+                    result += str(part.value)
+                elif isinstance(part, ast.FormattedValue):
+                    val = self._resolve_node_value(part.value, current_version, line, _depth + 1, _visited)
+                    if val and val.startswith(("'", '"')):
+                        val = val[1:-1]
+                    result += val if val else ""
             return result
 
-        # Handle function calls
+        if isinstance(node, ast.FormattedValue):
+            return self._resolve_node_value(node.value, current_version, line, _depth + 1, _visited)
+
+        if isinstance(node, ast.List):
+            elements = []
+            for el in node.elts:
+                val = self._resolve_node_value(el, current_version, line, _depth + 1, _visited)
+                elements.append(val if val is not None else self._safe_unparse(el))
+            return f"[{', '.join(elements)}]"
+
+        if isinstance(node, ast.Tuple):
+            elements = []
+            for el in node.elts:
+                val = self._resolve_node_value(el, current_version, line, _depth + 1, _visited)
+                elements.append(val if val is not None else self._safe_unparse(el))
+            return f"({', '.join(elements)})"
+
+        if isinstance(node, ast.Dict):
+            items = []
+            for k, v in zip(node.keys, node.values):
+                key = self._resolve_node_value(k, current_version, line, _depth + 1, _visited)
+                val = self._resolve_node_value(v, current_version, line, _depth + 1, _visited)
+                items.append(f"{key if key is not None else self._safe_unparse(k)}: {val if val is not None else self._safe_unparse(v)}")
+            return f"{{{', '.join(items)}}}"
+
+        if isinstance(node, ast.Subscript):
+            value = self._resolve_node_value(node.value, current_version, line, _depth + 1, _visited)
+            slice_val = self._resolve_node_value(node.slice, current_version, line, _depth + 1, _visited)
+            return f"{value if value is not None else self._safe_unparse(node.value)}[{slice_val if slice_val is not None else self._safe_unparse(node.slice)}]"
+
+        try:
+            return ast.unparse(node)
+        except:
+            return None
+
+    def _resolve_expression_with_version(self, expr: str, version: str, line: int = None, _depth: int = 0, _visited: set = None) -> str:
+        if _depth > 30:
+            return "<depth_limit>"
+
+        if _visited is None:
+            _visited = set()
+
+        if expr is None:
+            return ""
+
+        expr = expr.strip()
+
+        key = f"{expr}:{version}"
+        if key in _visited:
+            return "<circular>"
+        _visited.add(key)
+
+        if expr.isidentifier():
+            var = expr
+            if line is not None:
+                ver = self._get_version_at_line(var, line)
+            else:
+                ver = self._get_version_for_resolution(var, version)
+
+            if ver in self.var_values:
+                return self.var_values[ver]
+            if ver in self.var_chain:
+                return self._resolve_expression_with_version(self.var_chain[ver], ver, line, _depth + 1, _visited)
+            if var in self.variable_values:
+                return repr(self.variable_values[var])
+            return expr
+
         if '(' in expr and ')' in expr:
-            call_name = expr.split('(', 1)[0].strip()
-            args_str = expr[expr.find('(') + 1:expr.rfind(')')]
+            try:
+                call_name = expr.split('(', 1)[0].strip()
+                args_str = expr[expr.find('(') + 1:expr.rfind(')')]
+            except:
+                return expr
+
+            if call_name == "__import__" and args_str:
+                arg = args_str.strip()
+                if arg and arg.startswith("'") and arg.endswith("'"):
+                    module_name = arg[1:-1]
+                    if module_name.isidentifier():
+                        return module_name
+                if arg.isidentifier():
+                    resolved = self._resolve_expression_with_version(arg, version, line, _depth + 1, _visited)
+                    if resolved and resolved.startswith("'") and resolved.endswith("'"):
+                        module_name = resolved[1:-1]
+                        if module_name.isidentifier():
+                            return module_name
 
             if args_str:
                 args = []
@@ -172,21 +368,27 @@ class Parser:
                 resolved_args = []
                 for arg in args:
                     if arg.isidentifier():
-                        resolved_args.append(self._resolve_variable_chain(arg, visited))
+                        resolved_args.append(self._resolve_expression_with_version(arg, version, line, _depth + 1, _visited))
                     else:
-                        resolved_args.append(arg)
+                        if '+' in arg and all(x.strip().startswith("'") for x in arg.split('+')):
+                            try:
+                                parts = [p.strip().strip("'") for p in arg.split('+')]
+                                const_val = ''.join(parts)
+                                resolved_args.append(repr(const_val))
+                            except:
+                                resolved_args.append(arg)
+                        else:
+                            resolved_args.append(arg)
 
                 return f"{call_name}({', '.join(resolved_args)})"
             return expr
 
-        # String literal
         if (expr.startswith("'") and expr.endswith("'")) or (expr.startswith('"') and expr.endswith('"')):
             return expr
 
         return expr
 
-    def _build_variable_chain(self, tree):
-        """Build variable chain from assignments."""
+    def _build_variable_chains(self, tree):
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign):
                 for target in node.targets:
@@ -201,89 +403,59 @@ class Parser:
                             pass
 
     def _build_alias_map(self, tree):
-        """
-        Build alias map for dynamic imports.
-        Example: my_os = __import__(module_name) where module_name = "os"
-        """
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign):
                 for target in node.targets:
                     if isinstance(target, ast.Name) and isinstance(node.value, ast.Call):
                         call = node.value
-
                         if self._is_dynamic_import(call):
                             module_name = None
-
                             if call.args:
                                 arg = call.args[0]
-
-                                # Direct string constant
                                 if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                                     module_name = arg.value
-
-                                # Variable reference (resolve it)
                                 elif isinstance(arg, ast.Name):
-                                    # Try variable_values first
                                     if arg.id in self.variable_values:
                                         module_name = self.variable_values[arg.id]
-                                    # Try variable_chain
                                     elif arg.id in self.variable_chain:
-                                        resolved = self._resolve_variable_chain(arg.id)
-                                        if resolved and resolved != arg.id:
-                                            module_name = resolved
-
-                                # Binary operation like "o" + "s"
+                                        resolved = self._resolve_expression_with_version(self.variable_chain[arg.id], "")
+                                        if resolved and resolved.startswith("'") and resolved.endswith("'"):
+                                            module_name = resolved[1:-1]
                                 elif isinstance(arg, ast.BinOp):
                                     module_name = self._eval_expr(arg)
 
-                            # If we got a module name, add to alias_map
                             if module_name and isinstance(module_name, str):
                                 self.alias_map[target.id] = module_name
-                                print(f"✅ Alias: {target.id} -> {module_name}")  # Debug
 
     def _is_dynamic_import(self, call_node) -> bool:
-        """Return True if call is __import__ or importlib.import_module."""
         func = call_node.func
-
         if isinstance(func, ast.Name) and func.id == '__import__':
             return True
-
         if isinstance(func, ast.Attribute):
             if (isinstance(func.value, ast.Name) and func.value.id == 'importlib'
                     and func.attr == 'import_module'):
                 return True
-
         return False
 
     def _resolve_call_name(self, node) -> str:
-        """
-        Resolve call name with alias support.
-        Example: my_os.getenv -> os.getenv
-        """
         if node is None:
             return ""
 
-        # ---- Name node ----
         if isinstance(node, ast.Name):
             if node.id in self.alias_map:
                 return self.alias_map[node.id]
             return node.id
 
-        # ---- Attribute node ----
         if isinstance(node, ast.Attribute):
             resolved_base = self._resolve_call_name(node.value)
             attr = node.attr
-
-            # If base is an alias, it's already resolved
             if resolved_base:
                 return f"{resolved_base}.{attr}"
             return attr
 
-        # ---- Call node ----
         if isinstance(node, ast.Call):
             return self._resolve_call_name(node.func)
 
-        # ---- Constant ----
         if isinstance(node, ast.Constant):
             return str(node.value)
 
@@ -292,74 +464,12 @@ class Parser:
         except:
             return str(type(node).__name__)
 
-    def _resolve_value(self, node) -> str:
-        """Resolve a node to its constant value if possible."""
+    def _resolve_value(self, node, line: int = None) -> str:
         if node is None:
             return ""
 
-        # ---- Name node ----
-        if isinstance(node, ast.Name):
-            var_name = node.id
-            if var_name in self.variable_values:
-                return repr(self.variable_values[var_name])
-            if var_name in self.variable_chain:
-                return self._resolve_variable_chain(var_name)
-            return var_name
-
-        # ---- Constant node ----
-        if isinstance(node, ast.Constant):
-            if isinstance(node.value, str):
-                return repr(node.value)
-            return str(node.value)
-
-        # ---- F-string ----
-        if isinstance(node, ast.JoinedStr):
-            result = ""
-            for part in node.values:
-                if isinstance(part, ast.Constant):
-                    result += str(part.value)
-                elif isinstance(part, ast.FormattedValue):
-                    val = self._resolve_value(part.value)
-                    if val.startswith("'") and val.endswith("'"):
-                        val = val[1:-1]
-                    elif val.startswith('"') and val.endswith('"'):
-                        val = val[1:-1]
-                    result += val
-            return result
-
-        if isinstance(node, ast.FormattedValue):
-            return self._resolve_value(node.value)
-
-        # ---- BinOp ----
-        if isinstance(node, ast.BinOp):
-            val = self._eval_expr(node)
-            if val is not None:
-                return repr(val)
-
-        # ---- Call node ----
-        if isinstance(node, ast.Call):
-            name = self._resolve_call_name(node.func)
-            args = [self._resolve_value(a) for a in node.args]
-            kwargs = []
-            for kw in node.keywords:
-                if kw.arg:
-                    kwargs.append(f"{kw.arg}={self._resolve_value(kw.value)}")
-            all_args = args + kwargs
-            return f"{name}({', '.join(all_args)})"
-
-        # ---- Attribute node ----
-        if isinstance(node, ast.Attribute):
-            resolved_base = self._resolve_value(node.value)
-            return f"{resolved_base}.{node.attr}"
-
-        try:
-            return ast.unparse(node)
-        except:
-            return str(type(node).__name__)
-
-    # ------------------------------------------------------------------
-    # Existing methods
-    # ------------------------------------------------------------------
+        resolved = self._resolve_node_value(node, current_version=None, line=line)
+        return resolved if resolved is not None else self._safe_unparse(node)
 
     def _get_imports(self) -> List[str]:
         imports = set()
@@ -406,21 +516,22 @@ class Parser:
             if isinstance(node, ast.Call):
                 name = self._resolve_call_name(node.func)
                 if name and name not in {"", "None", "True", "False", "self", "cls", "chr"}:
+                    line = node.lineno
                     resolved_args = []
                     for arg in node.args:
-                        resolved_args.append(self._resolve_value(arg))
+                        resolved_args.append(self._resolve_value(arg, line=line))
 
                     resolved_keywords = []
                     for kw in node.keywords:
                         if kw.arg:
                             resolved_keywords.append({
                                 "arg": kw.arg,
-                                "value": self._resolve_value(kw.value)
+                                "value": self._resolve_value(kw.value, line=line)
                             })
 
                     calls.append({
                         "name": name,
-                        "line": node.lineno,
+                        "line": line,
                         "arg_count": len(node.args),
                         "kw_count": len(node.keywords),
                         "args": resolved_args,
@@ -452,11 +563,16 @@ class Parser:
             if isinstance(node, ast.Assign):
                 for target in node.targets:
                     if isinstance(target, ast.Name):
+                        var = target.id
+                        line = node.lineno
                         rhs = self._get_value_repr(node.value)
+                        resolved = self._resolve_value(node.value, line=line)
                         assignments.append({
-                            "line": node.lineno,
-                            "variable": target.id,
+                            "line": line,
+                            "variable": var,
                             "value": rhs,
+                            "resolved_value": resolved if resolved != rhs else None,
+                            "version": self._current_version(var),
                             "operation": "=",
                             "type": "assignment",
                         })
@@ -638,3 +754,10 @@ class Parser:
         if isinstance(node, ast.Constant):
             return str(node.value)
         return getattr(node, 'id', getattr(node, 'attr', getattr(node, 'name', str(node)[:30])))
+
+
+if __name__ == "__main__":
+    import json
+    parser = Parser(r'C:\Users\Acer\Downloads\TrustGuard\test_samples\credential_theft.py')
+    result = parser.parse()
+    print(json.dumps(result, indent=2))
